@@ -3,7 +3,8 @@ import random
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                            QHBoxLayout, QLabel, QSpinBox, QPushButton, 
                            QTableWidget, QTableWidgetItem, QMessageBox,
-                           QGroupBox, QFileDialog)
+                           QGroupBox, QFileDialog, QScrollArea, QCheckBox,
+                           QTabWidget, QComboBox)
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 import openpyxl
@@ -14,12 +15,19 @@ class MealPlanner(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Meal Planner")
-        self.setMinimumSize(1000, 800)
+        self.setMinimumSize(1200, 800)
         
         # Initialize the main widget and layout
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
         layout = QVBoxLayout(main_widget)
+        
+        # Create tab widget
+        tabs = QTabWidget()
+        
+        # Create main tab
+        main_tab = QWidget()
+        main_layout = QVBoxLayout(main_tab)
         
         # Create input section
         input_group = QGroupBox("Category Settings")
@@ -77,10 +85,38 @@ class MealPlanner(QMainWindow):
         table_layout.addWidget(self.table)
         table_group.setLayout(table_layout)
         
-        # Add widgets to main layout
-        layout.addWidget(input_group)
-        layout.addLayout(button_layout)
-        layout.addWidget(table_group)
+        # Add widgets to main tab layout
+        main_layout.addWidget(input_group)
+        main_layout.addLayout(button_layout)
+        main_layout.addWidget(table_group)
+        
+        # Create exclusion tab
+        exclusion_tab = QWidget()
+        exclusion_layout = QVBoxLayout(exclusion_tab)
+        
+        # Create scroll area for exclusions
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+        
+        # Create checkboxes for each meal item
+        self.exclusion_checkboxes = {}
+        for item in MEAL_ITEMS:
+            checkbox = QCheckBox(item["name"])
+            checkbox.setChecked(False)
+            self.exclusion_checkboxes[item["name"]] = checkbox
+            scroll_layout.addWidget(checkbox)
+        
+        scroll.setWidget(scroll_content)
+        exclusion_layout.addWidget(scroll)
+        
+        # Add tabs to tab widget
+        tabs.addTab(main_tab, "Meal Planner")
+        tabs.addTab(exclusion_tab, "Exclude Items")
+        
+        # Add tab widget to main layout
+        layout.addWidget(tabs)
         
         # Initialize items list
         self.items = MEAL_ITEMS
@@ -90,34 +126,75 @@ class MealPlanner(QMainWindow):
             "السبت", "الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة",
             "السبت", "الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة"
         ]
+        
+        # Initialize the table with dropdowns
+        self.initialize_table()
 
-    def select_meal_items(self, meal_type, group, used_items, prev_day_items, category_counts, quotas):
-        available_items = [item for item in self.items if item["eat_time"] == meal_type and item["group"] == group]
+    def get_excluded_items(self):
+        return [name for name, checkbox in self.exclusion_checkboxes.items() if checkbox.isChecked()]
+
+    def initialize_table(self):
+        self.table.setRowCount(len(self.days))
         
-        if group == 1:
-            available_items = [item for item in available_items if item["name"] not in prev_day_items]
+        # Get excluded items
+        excluded_items = self.get_excluded_items()
+        
+        # Create dropdowns for each meal cell
+        for row in range(len(self.days)):
+            # Day column
+            day_item = QTableWidgetItem(self.days[row])
+            self.table.setItem(row, 0, day_item)
             
-            filtered_items = []
-            for item in available_items:
-                category = item["color"]
-                if category == "A" and category_counts[meal_type]["A"] < quotas["A"]:
-                    filtered_items.append(item)
-                elif category == "B" and category_counts[meal_type]["B"] < quotas["B"]:
-                    filtered_items.append(item)
-                elif category == "C" and category_counts[meal_type]["C"] < quotas["C"]:
-                    filtered_items.append(item)
-            available_items = filtered_items
+            # Breakfast column (Group 1 + Group 2)
+            breakfast_combo = QComboBox()
+            breakfast_group1_items = [item["name"] for item in self.items 
+                                    if item["eat_time"] == "Breakfast" 
+                                    and item["group"] == 1
+                                    and item["name"] not in excluded_items]
+            breakfast_group2_items = [item["name"] for item in self.items 
+                                    if item["eat_time"] == "Breakfast" 
+                                    and item["group"] == 2
+                                    and item["name"] not in excluded_items]
+            breakfast_combinations = [f"{g1} + {g2}" for g1 in breakfast_group1_items 
+                                    for g2 in breakfast_group2_items]
+            breakfast_combo.addItems(breakfast_combinations)
+            # Set random value
+            if breakfast_combinations:
+                breakfast_combo.setCurrentIndex(random.randint(0, len(breakfast_combinations) - 1))
+            self.table.setCellWidget(row, 1, breakfast_combo)
+            
+            # Lunch column (Group 1 + Group 2)
+            lunch_combo = QComboBox()
+            lunch_group1_items = [item["name"] for item in self.items 
+                                if item["eat_time"] == "Lunch" 
+                                and item["group"] == 1
+                                and item["name"] not in excluded_items]
+            lunch_group2_items = [item["name"] for item in self.items 
+                                if item["eat_time"] == "Lunch" 
+                                and item["group"] == 2
+                                and item["name"] not in excluded_items]
+            lunch_combinations = [f"{g1} + {g2}" for g1 in lunch_group1_items 
+                                for g2 in lunch_group2_items]
+            lunch_combo.addItems(lunch_combinations)
+            # Set random value
+            if lunch_combinations:
+                lunch_combo.setCurrentIndex(random.randint(0, len(lunch_combinations) - 1))
+            self.table.setCellWidget(row, 2, lunch_combo)
+            
+            # Dinner column (Group 1 only)
+            dinner_combo = QComboBox()
+            dinner_items = [item["name"] for item in self.items 
+                          if item["eat_time"] == "Dinner" 
+                          and item["group"] == 1
+                          and item["name"] not in excluded_items]
+            dinner_combo.addItems(dinner_items)
+            # Set random value
+            if dinner_items:
+                dinner_combo.setCurrentIndex(random.randint(0, len(dinner_items) - 1))
+            self.table.setCellWidget(row, 3, dinner_combo)
         
-        if not available_items:
-            available_items = [item for item in self.items if item["eat_time"] == meal_type and item["group"] == group]
-            available_items = [item for item in available_items if item["name"] not in prev_day_items]
-        
-        if available_items:
-            selected_item = random.choice(available_items)
-            if group == 1:
-                category_counts[meal_type][selected_item["color"]] += 1
-            return selected_item["name"]
-        return None
+        # Enable save button after table is initialized
+        self.save_button.setEnabled(True)
 
     def generate_meal_plan(self):
         # Get category counts from spin boxes
@@ -148,52 +225,8 @@ class MealPlanner(QMainWindow):
             else:
                 category_c_quota += diff
         
-        # Initialize counters for category quotas per meal type
-        category_counts = {
-            "Breakfast": {"A": 0, "B": 0, "C": 0},
-            "Lunch": {"A": 0, "B": 0, "C": 0},
-            "Dinner": {"A": 0, "B": 0, "C": 0}
-        }
-        
-        quotas = {
-            "A": category_a_quota,
-            "B": category_b_quota,
-            "C": category_c_quota
-        }
-        
-        # Clear and setup table
-        self.table.setRowCount(len(self.days))
-        
-        used_breakfast_items = []
-        used_lunch_items = []
-        
-        for i, day in enumerate(self.days):
-            # Breakfast: Group 1 + Group 2
-            prev_breakfast_items = used_breakfast_items[-1] if used_breakfast_items else []
-            breakfast_group1 = self.select_meal_items("Breakfast", 1, used_breakfast_items, prev_breakfast_items, category_counts, quotas)
-            breakfast_group2 = self.select_meal_items("Breakfast", 2, [], [], category_counts, quotas)
-            breakfast_combo = f"{breakfast_group1} + {breakfast_group2}"
-            used_breakfast_items.append([breakfast_group1])
-            
-            # Lunch: Group 1 + Group 2
-            prev_lunch_items = used_lunch_items[-1] if used_lunch_items else []
-            lunch_group1 = self.select_meal_items("Lunch", 1, used_lunch_items, prev_lunch_items, category_counts, quotas)
-            lunch_group2 = self.select_meal_items("Lunch", 2, [], [], category_counts, quotas)
-            lunch_combo = f"{lunch_group1} + {lunch_group2}"
-            used_lunch_items.append([lunch_group1])
-            
-            # Dinner: Single Group 1 item
-            dinner_item = self.select_meal_items("Dinner", 1, [], [], category_counts, quotas)
-            
-            # Add items to table
-            self.table.setItem(i, 0, QTableWidgetItem(day))
-            self.table.setItem(i, 1, QTableWidgetItem(breakfast_combo))
-            self.table.setItem(i, 2, QTableWidgetItem(lunch_combo))
-            self.table.setItem(i, 3, QTableWidgetItem(dinner_item))
-        
-        # Resize columns to fit content
-        self.table.resizeColumnsToContents()
-        self.save_button.setEnabled(True)
+        # Initialize the table with dropdowns
+        self.initialize_table()
 
     def save_to_excel(self):
         try:
@@ -216,12 +249,89 @@ class MealPlanner(QMainWindow):
             for col, header in enumerate(headers, 1):
                 sheet.cell(row=1, column=col).value = header
             
-            # Write meal plan
+            # Get excluded items
+            excluded_items = self.get_excluded_items()
+            
+            # Get all possible combinations for dropdowns
+            # Breakfast combinations
+            breakfast_group1_items = [item["name"] for item in self.items 
+                                    if item["eat_time"] == "Breakfast" 
+                                    and item["group"] == 1
+                                    and item["name"] not in excluded_items]
+            breakfast_group2_items = [item["name"] for item in self.items 
+                                    if item["eat_time"] == "Breakfast" 
+                                    and item["group"] == 2
+                                    and item["name"] not in excluded_items]
+            breakfast_combinations = [f"{g1} + {g2}" for g1 in breakfast_group1_items 
+                                    for g2 in breakfast_group2_items]
+            
+            # Lunch combinations
+            lunch_group1_items = [item["name"] for item in self.items 
+                                if item["eat_time"] == "Lunch" 
+                                and item["group"] == 1
+                                and item["name"] not in excluded_items]
+            lunch_group2_items = [item["name"] for item in self.items 
+                                if item["eat_time"] == "Lunch" 
+                                and item["group"] == 2
+                                and item["name"] not in excluded_items]
+            lunch_combinations = [f"{g1} + {g2}" for g1 in lunch_group1_items 
+                                for g2 in lunch_group2_items]
+            
+            # Dinner items
+            dinner_items = [item["name"] for item in self.items 
+                          if item["eat_time"] == "Dinner" 
+                          and item["group"] == 1
+                          and item["name"] not in excluded_items]
+            
+            # Create named ranges for dropdowns
+            # Breakfast
+            for i, combo in enumerate(breakfast_combinations, 1):
+                sheet.cell(row=i, column=6).value = combo
+            breakfast_range = f"$F$1:$F${len(breakfast_combinations)}"
+            
+            # Lunch
+            for i, combo in enumerate(lunch_combinations, 1):
+                sheet.cell(row=i, column=7).value = combo
+            lunch_range = f"$G$1:$G${len(lunch_combinations)}"
+            
+            # Dinner
+            for i, item in enumerate(dinner_items, 1):
+                sheet.cell(row=i, column=8).value = item
+            dinner_range = f"$H$1:$H${len(dinner_items)}"
+            
+            # Write meal plan and create dropdown lists
             for row in range(self.table.rowCount()):
-                for col in range(self.table.columnCount()):
-                    item = self.table.item(row, col)
-                    if item:
-                        sheet.cell(row=row+2, column=col+1).value = item.text()
+                # Day
+                sheet.cell(row=row+2, column=1).value = self.table.item(row, 0).text()
+                
+                # Get selected values
+                breakfast_combo = self.table.cellWidget(row, 1)
+                lunch_combo = self.table.cellWidget(row, 2)
+                dinner_combo = self.table.cellWidget(row, 3)
+                
+                # Write selected values
+                sheet.cell(row=row+2, column=2).value = breakfast_combo.currentText()
+                sheet.cell(row=row+2, column=3).value = lunch_combo.currentText()
+                sheet.cell(row=row+2, column=4).value = dinner_combo.currentText()
+                
+                # Add data validation (dropdown lists)
+                breakfast_dv = DataValidation(type="list", formula1=f"={breakfast_range}", allow_blank=True)
+                lunch_dv = DataValidation(type="list", formula1=f"={lunch_range}", allow_blank=True)
+                dinner_dv = DataValidation(type="list", formula1=f"={dinner_range}", allow_blank=True)
+                
+                # Apply data validation to cells
+                sheet.add_data_validation(breakfast_dv)
+                sheet.add_data_validation(lunch_dv)
+                sheet.add_data_validation(dinner_dv)
+                
+                breakfast_dv.add(sheet.cell(row=row+2, column=2))
+                lunch_dv.add(sheet.cell(row=row+2, column=3))
+                dinner_dv.add(sheet.cell(row=row+2, column=4))
+            
+            # Hide the helper columns
+            sheet.column_dimensions['F'].hidden = True
+            sheet.column_dimensions['G'].hidden = True
+            sheet.column_dimensions['H'].hidden = True
             
             # Save the file
             workbook.save(file_name)
