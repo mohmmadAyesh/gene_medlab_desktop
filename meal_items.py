@@ -107,3 +107,30 @@ MEAL_ITEMS = [
     {"name": "حبة جوافة", "color": "A", "eat_time": "Dinner", "group": 1},
     {"name": "١ صحن سلطة يونانية (سلطة خضراء + جبنة بيضاء قليلة الدسم)", "color": "A", "eat_time": "Dinner", "group": 1}
 ] 
+DIABETES_EXCLUDED_FOODS = [
+    {"name": "١٠٠ غرام عين جمل", "color": "B", "eat_time": "Dinner", "group": 1},
+    {"name": "١٠٠ غرام بذر عين شمس", "color": "B", "eat_time": "Dinner", "group": 1},
+    {"name": "صحن عجة بيض + بقدونس + بصل", "color": "A", "eat_time": "Dinner", "group": 1},
+    {"name": "٣ أو ٤ حبات فاكهة صنف واحد (تفاح، مشمس، كيوي، أجاص، خوخ)", "color": "A", "eat_time": "Dinner", "group": 1},
+    {"name": "علبة فول مدمس", "color": "A", "eat_time": "Dinner", "group": 1},
+    {"name": "٢ شريحة بطيخ", "color": "A", "eat_time": "Dinner", "group": 1},
+    {"name": "٢ شريحة شمام", "color": "A", "eat_time": "Dinner", "group": 1},
+    {"name": "١٠٠ غرام عنب", "color": "A", "eat_time": "Dinner", "group": 1},
+    {"name": "٢ حبة تين", "color": "A", "eat_time": "Dinner", "group": 1},
+    {"name": "١٠٠ غرام مانجا", "color": "A", "eat_time": "Dinner", "group": 1},
+    {"name": "حبة جوافة", "color": "A", "eat_time": "Dinner", "group": 1},
+    {"name": "١ صحن سلطة يونانية (سلطة خضراء + جبنة بيضاء قليلة الدسم)", "color": "A", "eat_time": "Dinner", "group": 1}
+] 
+KIDNEY_EXCLUDED_FOODS = [
+    {"name": "١-٢ بيضة مسلوقة", "color": "A", "eat_time": "Breakfast", "group": 1},
+    {"name": "١-٢ علبة لبن رايب", "color": "A", "eat_time": "Breakfast", "group": 1},
+    {"name": "٥ ملاعق جبنة فيتا + خيار", "color": "A", "eat_time": "Breakfast", "group": 1},
+    {"name": "٤ قطع جبنة مثلثات", "color": "C", "eat_time": "Breakfast", "group": 1},
+    {"name": "قطعة جبنة صفراء كيه٢", "color": "B", "eat_time": "Breakfast", "group": 1},
+    {"name": "جبنة قريش + بندورة + خيار", "color": "A", "eat_time": "Breakfast", "group": 1},
+    {"name": "١-٢ حبة أفوكادو بدون خبز", "color": "A", "eat_time": "Breakfast", "group": 1},
+    {"name": "١ صحن سلطة بدون خبز", "color": "A", "eat_time": "Breakfast", "group": 1},
+    {"name": "٥٠ غرام مكسرات (فستق-لوز-عين جمل)", "color": "B", "eat_time": "Breakfast", "group": 1},
+    {"name": "٤ ملاعق لبنة كبيرة + ٢ حبة خيار بدون خبز", "color": "A", "eat_time": "Breakfast", "group": 1},
+    {"name": "٢ بيضة مقلية بزيت الزيتون + خضار بدون خبز", "color": "A", "eat_time": "Breakfast", "group": 1},
+] 
