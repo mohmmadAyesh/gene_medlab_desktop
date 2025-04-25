@@ -8,6 +8,9 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
 from PySide6.QtCore import Qt
 import os
 import tempfile
+from docx import Document
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.shared import qn, OxmlElement
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
@@ -32,6 +35,29 @@ def create_element(name):
     return OxmlElement(name)
 def create_attribute(element,name,value):
     element.set(qn(name),value)
+def create_dropdown_element(options, selected=None):
+    sdt = OxmlElement('w:sdt')
+    sdtPr = OxmlElement('w:sdtPr')
+    ddl = OxmlElement('w:dropDownList')
+    for option in options:
+        li = OxmlElement('w:listItem')
+        li.set(qn('w:displayText'), option)
+        li.set(qn('w:value'), option)
+        ddl.append(li)
+    sdtPr.append(ddl)
+    sdt.append(sdtPr)
+
+    sdtContent = OxmlElement('w:sdtContent')
+    p = OxmlElement('w:p')
+    r = OxmlElement('w:r')
+    t = OxmlElement('w:t')
+    t.text = selected or (options[0] if options else '')
+    r.append(t)
+    p.append(r)
+    sdtContent.append(p)
+    sdt.append(sdtContent)
+    return sdt
+
 class MealPlanner(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -349,6 +375,9 @@ class MealPlanner(QMainWindow):
         self.save_excel_button = QPushButton("Save to Excel")
         self.save_excel_button.clicked.connect(self.save_to_excel)
         self.save_excel_button.setEnabled(False)
+        self.export_to_word_template_button = QPushButton("Export to Word Template")
+        self.export_to_word_template_button.clicked.connect(self.save_to_template_word)
+        self.export_to_word_template_button.setEnabled(False)
         self.save_word_button = QPushButton("Save to Word")
         self.save_word_button.clicked.connect(self.save_to_word)
         self.save_word_button.setEnabled(False)
@@ -363,6 +392,7 @@ class MealPlanner(QMainWindow):
         button_layout.addWidget(self.save_word_button)
         button_layout.addWidget(self.save_pdf_button)
         button_layout.addWidget(self.save_gdocs_button)
+        button_layout.addWidget(self.export_to_word_template_button)
         
         # Table widget for displaying meal plan
         table_group = QGroupBox("Meal Plan")
@@ -640,6 +670,7 @@ class MealPlanner(QMainWindow):
         self.save_word_button.setEnabled(True)
         self.save_pdf_button.setEnabled(True)
         self.save_gdocs_button.setEnabled(True)
+        self.export_to_word_template_button.setEnabled(True)
 
     def generate_meal_plan(self):
         try:
@@ -933,7 +964,6 @@ class MealPlanner(QMainWindow):
                     r.append(t)
                     p.append(r)
                     sdtContent.append(p)
-                    sdt.append(sdtContent)
                     cell._element.append(sdt)
                 breakfast_combo = self.table.cellWidget(row_idx, 1).currentText()
                 create_dropdown(row_cells[1], breakfast_combinations, breakfast_combo)
@@ -1181,6 +1211,96 @@ class MealPlanner(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to create Google Doc: {str(e)}")
 
+    def save_to_template_word(self):
+        try:
+            # Step 1: Load template
+            template_path = "num133333 (5).docx"
+            if not os.path.exists(template_path):
+                QMessageBox.critical(self, "Error", "Template file not found!")
+                return
+                
+            doc = Document(template_path)
+            
+            # Step 2: Get meal options and current selections
+            breakfast_options = self.get_breakfast_combinations()
+            lunch_options = self.get_lunch_combinations()
+            dinner_options = self.get_dinner_items()
+            
+            # Step 3: Create replacements dictionary with current selections
+            replacements = {}
+            for row in range(self.table.rowCount()):
+                day_num = row + 1
+                breakfast_key = f"Bf{day_num}"
+                lunch_key = f"Lunch{day_num}"
+                dinner_key = f"Dinner{day_num}"
+                
+                breakfast_selected = self.table.cellWidget(row, 1).currentText()
+                lunch_selected = self.table.cellWidget(row, 2).currentText()
+                dinner_selected = self.table.cellWidget(row, 3).currentText()
+                
+                replacements[breakfast_key] = (breakfast_options, breakfast_selected)
+                replacements[lunch_key] = (lunch_options, lunch_selected)
+                replacements[dinner_key] = (dinner_options, dinner_selected)
+
+            # Step 4: Process shapes in the document
+            for shape in doc.part.package.parts:
+                if hasattr(shape, '_element') and hasattr(shape._element, 'txbx'):
+                    try:
+                        text_frame = shape._element.txbx
+                        if text_frame is not None:
+                            text_content = text_frame.text
+                            
+                            # Check for placeholders
+                            for key, (options, selected) in replacements.items():
+                                if key in text_content:
+                                    # Create new paragraph with dropdown
+                                    new_p = OxmlElement('w:p')
+                                    dropdown = create_dropdown_element(options, selected)
+                                    new_p.append(dropdown)
+                                    
+                                    # Replace text frame content
+                                    text_frame.clear_content()
+                                    text_frame._element.append(new_p)
+                    except Exception as shape_error:
+                        print(f"Error processing shape: {shape_error}")
+                        continue
+
+            # Alternative approach using word._element
+            body = doc._element.body
+            for shape in body.findall('.//w:txbxContent', {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}):
+                for paragraph in shape.findall('.//w:p', {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}):
+                    text_content = ""
+                    for run in paragraph.findall('.//w:t', {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}):
+                        if run.text:
+                            text_content += run.text
+                    
+                    # Check for placeholders
+                    for key, (options, selected) in replacements.items():
+                        if key in text_content:
+                            # Clear paragraph content
+                            for child in list(paragraph):
+                                paragraph.remove(child)
+                            
+                            # Add dropdown
+                            dropdown = create_dropdown_element(options, selected)
+                            paragraph.append(dropdown)
+
+            # Step 5: Save the document
+            save_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Save File",
+                "",
+                "Word Files (*.docx)"
+            )
+            
+            if save_path:
+                doc.save(save_path)
+                QMessageBox.information(self, "Success", "Meal plan saved with template successfully!")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save with template: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = MealPlanner()
