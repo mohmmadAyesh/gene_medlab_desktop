@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                            QHBoxLayout, QLabel, QSpinBox, QPushButton, 
                            QTableWidget, QTableWidgetItem, QMessageBox,
                            QGroupBox, QFileDialog, QScrollArea, QCheckBox,
-                           QTabWidget, QComboBox)
+                           QTabWidget, QComboBox, QHeaderView)
 from PySide6.QtCore import Qt
 import os
 import tempfile
@@ -38,13 +38,234 @@ class MealPlanner(QMainWindow):
         self.setWindowTitle("Meal Planner")
         self.setMinimumSize(1200, 800)
         self.health_conditions = []
+        
+        # Set application font for Arabic text
+        app_font = QFont("Arial")
+        app_font.setPointSize(11)
+        QApplication.setFont(app_font)
+        
+        # Set application-wide style
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #ffffff;
+            }
+            QGroupBox {
+                background-color: #ffffff;
+                border: 1px solid #e5e7eb;
+                border-radius: 12px;
+                margin-top: 1.5em;
+                padding: 15px;
+                font-weight: bold;
+                color: #111827;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 10px;
+                color: #111827;
+                font-size: 14px;
+                background-color: #ffffff;
+            }
+            QPushButton {
+                background-color: #3b82f6;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 8px;
+                font-weight: bold;
+                font-size: 13px;
+                min-width: 120px;
+            }
+            QPushButton:hover {
+                background-color: #2563eb;
+            }
+            QPushButton:disabled {
+                background-color: #9ca3af;
+                color: #f3f4f6;
+            }
+            QSpinBox {
+                padding: 8px;
+                border: 2px solid #e5e7eb;
+                border-radius: 8px;
+                background-color: #ffffff;
+                color: #111827;
+                font-size: 13px;
+                min-width: 80px;
+            }
+            QSpinBox:hover {
+                border-color: #3b82f6;
+            }
+            QSpinBox::up-button, QSpinBox::down-button {
+                border: none;
+                background-color: #f3f4f6;
+                border-radius: 4px;
+                margin: 1px;
+            }
+            QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+                background-color: #e5e7eb;
+            }
+            QTableWidget {
+                background-color: #ffffff;
+                border: 1px solid #e5e7eb;
+                border-radius: 12px;
+                gridline-color: #f3f4f6;
+                color: #111827;
+                font-size: 13px;
+            }
+            QTableWidget::item {
+                padding: 12px;
+                border-bottom: 1px solid #f3f4f6;
+            }
+            QTableWidget::item:selected {
+                background-color: #dbeafe;
+                color: #1e40af;
+            }
+            QHeaderView::section {
+                background-color: #f9fafb;
+                padding: 12px;
+                border: none;
+                border-bottom: 2px solid #e5e7eb;
+                color: #111827;
+                font-weight: bold;
+                font-size: 13px;
+            }
+            QTabWidget::pane {
+                border: 1px solid #e5e7eb;
+                border-radius: 12px;
+                background-color: #ffffff;
+                top: -1px;
+            }
+            QTabBar::tab {
+                background-color: #f9fafb;
+                border: 1px solid #e5e7eb;
+                padding: 10px 20px;
+                margin-right: 4px;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+                color: #6b7280;
+                font-size: 13px;
+            }
+            QTabBar::tab:selected {
+                background-color: #ffffff;
+                border-bottom: none;
+                color: #3b82f6;
+                font-weight: bold;
+            }
+            QTabBar::tab:hover:!selected {
+                color: #3b82f6;
+            }
+            QScrollArea {
+                border: none;
+                background-color: #ffffff;
+            }
+            QCheckBox {
+                spacing: 8px;
+                color: #111827;
+                font-size: 13px;
+            }
+            QCheckBox::indicator {
+                width: 20px;
+                height: 20px;
+                border-radius: 6px;
+            }
+            QCheckBox::indicator:unchecked {
+                border: 2px solid #e5e7eb;
+                background-color: #ffffff;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #3b82f6;
+                border: 2px solid #3b82f6;
+            }
+            QCheckBox::indicator:hover {
+                border-color: #3b82f6;
+            }
+            QLabel {
+                color: #111827;
+                font-size: 13px;
+                font-weight: 500;
+            }
+            QComboBox {
+                padding: 8px 12px;
+                border: 2px solid #e5e7eb;
+                border-radius: 8px;
+                background-color: #ffffff;
+                color: #111827;
+                min-width: 250px;
+                font-size: 13px;
+                selection-background-color: #dbeafe;
+                selection-color: #1e40af;
+                text-align: right;
+            }
+            QComboBox:hover {
+                border-color: #3b82f6;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 24px;
+            }
+            QComboBox::down-arrow {
+                width: 12px;
+                height: 12px;
+                margin-right: 8px;
+                image: none;
+                border: none;
+                background: none;
+            }
+            QComboBox::down-arrow:after {
+                content: "";
+                display: block;
+                width: 0;
+                height: 0;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid #6b7280;
+            }
+            QComboBox QAbstractItemView {
+                border: 1px solid #e5e7eb;
+                border-radius: 8px;
+                background-color: #ffffff;
+                selection-background-color: #dbeafe;
+                selection-color: #1e40af;
+                padding: 4px;
+            }
+            QScrollArea, QWidget#scrollContent {
+                background-color: #ffffff;
+                border: none;
+            }
+            QScrollArea {
+                border: 1px solid #e5e7eb;
+                border-radius: 12px;
+            }
+        """)
+        
         # Initialize the main widget and layout
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
         layout = QVBoxLayout(main_widget)
+        layout.setSpacing(20)
+        layout.setContentsMargins(20, 20, 20, 20)
         
-        # Create tab widget
+        # Create tab widget with modern styling
         tabs = QTabWidget()
+        tabs.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                background-color: white;
+            }
+            QTabBar::tab {
+                background-color: #f5f5f5;
+                border: 1px solid #e0e0e0;
+                padding: 8px 16px;
+                margin-right: 2px;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+            }
+            QTabBar::tab:selected {
+                background-color: white;
+                border-bottom: none;
+            }
+        """)
         
         # Create main tab
         main_tab = QWidget()
@@ -105,9 +326,25 @@ class MealPlanner(QMainWindow):
         input_layout.addLayout(category_c_layout)
         input_group.setLayout(input_layout)
         
-        # Button layout
+        # Update button layout with spacing
         button_layout = QHBoxLayout()
+        button_layout.setSpacing(10)
         self.generate_button = QPushButton("Generate Meal Plan")
+        self.generate_button.setStyleSheet("""
+            QPushButton {
+                background-color: #10b981;
+                color: white;
+                border: none;
+                padding: 12px 24px;
+                border-radius: 8px;
+                font-weight: bold;
+                font-size: 14px;
+                min-width: 150px;
+            }
+            QPushButton:hover {
+                background-color: #059669;
+            }
+        """)
         self.generate_button.clicked.connect(self.generate_meal_plan)
         self.save_excel_button = QPushButton("Save to Excel")
         self.save_excel_button.clicked.connect(self.save_to_excel)
@@ -134,6 +371,23 @@ class MealPlanner(QMainWindow):
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["اليوم", "الإفطار", "الغداء", "العشاء"])
         self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setStyleSheet("""
+            QTableWidget {
+                background-color: white;
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                gridline-color: #e0e0e0;
+            }
+            QTableWidget::item {
+                padding: 8px;
+            }
+            QHeaderView::section {
+                background-color: #f5f5f5;
+                padding: 8px;
+                border: none;
+                border-bottom: 1px solid #e0e0e0;
+            }
+        """)
         table_layout.addWidget(self.table)
         table_group.setLayout(table_layout)
         
@@ -150,12 +404,16 @@ class MealPlanner(QMainWindow):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll_content = QWidget()
+        scroll_content.setObjectName("scrollContent")
         scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setSpacing(10)
+        scroll_layout.setContentsMargins(15, 15, 15, 15)
         
         # Create checkboxes for each meal item
         self.exclusion_checkboxes = {}
         for item in MEAL_ITEMS:
             checkbox = QCheckBox(item["name"])
+            checkbox.setLayoutDirection(Qt.RightToLeft)
             checkbox.setChecked(False)
             self.exclusion_checkboxes[item["name"]] = checkbox
             scroll_layout.addWidget(checkbox)
@@ -182,6 +440,29 @@ class MealPlanner(QMainWindow):
         
         # Initialize the table with dropdowns
         self.initialize_table()
+
+        # Set table properties for better Arabic text display
+        self.table.setLayoutDirection(Qt.RightToLeft)
+        header = self.table.horizontalHeader()
+        header.setDefaultAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        
+        # Set minimum row height for better readability
+        self.table.verticalHeader().setDefaultSectionSize(50)
+        self.table.setAlternatingRowColors(True)
+        self.table.setShowGrid(True)
+        self.table.setGridStyle(Qt.SolidLine)
+        self.table.setStyleSheet(self.table.styleSheet() + """
+            QTableWidget {
+                gridline-color: #f3f4f6;
+            }
+            QTableWidget::item {
+                padding: 12px;
+                border-bottom: 1px solid #f3f4f6;
+            }
+            QTableWidget::item:alternate {
+                background-color: #fafafa;
+            }
+        """)
     def update_health_conditions(self):
         """Update the health conditions array based on checkbox states"""
         self.health_conditions = []
@@ -232,14 +513,63 @@ class MealPlanner(QMainWindow):
         # Get excluded items
         excluded_items = self.get_excluded_items()
         
+        # Update ComboBox style to ensure text visibility
+        combo_style = """
+        QComboBox {
+            padding: 10px 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            background-color: #ffffff;
+            color: #111827;
+            min-height: 40px;
+            min-width: 250px;
+            font-size: 14px;
+        }
+        QComboBox QAbstractItemView {
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            background-color: #ffffff;
+            selection-background-color: #dbeafe;
+            selection-color: #1e40af;
+            padding: 4px;
+            font-size: 13px;
+        }
+        QComboBox QAbstractItemView::item {
+            min-height: 36px;
+            padding: 6px 8px;
+        }
+        QComboBox::drop-down{
+            width: 24px;
+            border: none;
+        }
+        QComboBox::down-arrow{
+        image: none;
+        width: 0;
+        height: 0;
+        margin-right: 8px;
+        border-left: 5px solid transparent;
+        border-right: 5px solid transparent;
+        border-top: 5px solid #6b7280;
+        }
+        """
+       
         # Create dropdowns for each meal cell
         for row in range(len(self.days)):
             # Day column
             day_item = QTableWidgetItem(self.days[row])
+            day_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.table.setItem(row, 0, day_item)
             
-            # Breakfast column (Group 1 + Group 2)
+            # Breakfast column
             breakfast_combo = QComboBox()
+            breakfast_combo.setStyleSheet(combo_style)
+
+            breakfast_combo.setLayoutDirection(Qt.RightToLeft)
+            breakfast_combo.view().setLayoutDirection(Qt.RightToLeft)
+            breakfast_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+            breakfast_combo.setMinimumContentsLength(1)
+            breakfast_combo.setMinimumHeight(42)
+            breakfast_combo.setEditable(False)
             breakfast_group1_items = [item["name"] for item in self.items 
                                     if item["eat_time"] == "Breakfast" 
                                     and item["group"] == 1
@@ -251,13 +581,19 @@ class MealPlanner(QMainWindow):
             breakfast_combinations = [f"{g1} + {g2}" for g1 in breakfast_group1_items 
                                     for g2 in breakfast_group2_items]
             breakfast_combo.addItems(breakfast_combinations)
-            # Set random value
             if breakfast_combinations:
                 breakfast_combo.setCurrentIndex(random.randint(0, len(breakfast_combinations) - 1))
             self.table.setCellWidget(row, 1, breakfast_combo)
             
-            # Lunch column (Group 1 + Group 2)
+            # Lunch column
             lunch_combo = QComboBox()
+            lunch_combo.setStyleSheet(combo_style)
+            lunch_combo.setLayoutDirection(Qt.RightToLeft)
+            lunch_combo.view().setLayoutDirection(Qt.RightToLeft)
+            lunch_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+            lunch_combo.setMinimumContentsLength(1)
+            lunch_combo.setMinimumHeight(42)
+            lunch_combo.setEditable(False)
             lunch_group1_items = [item["name"] for item in self.items 
                                 if item["eat_time"] == "Lunch" 
                                 and item["group"] == 1
@@ -269,24 +605,37 @@ class MealPlanner(QMainWindow):
             lunch_combinations = [f"{g1} + {g2}" for g1 in lunch_group1_items 
                                 for g2 in lunch_group2_items]
             lunch_combo.addItems(lunch_combinations)
-            # Set random value
             if lunch_combinations:
                 lunch_combo.setCurrentIndex(random.randint(0, len(lunch_combinations) - 1))
             self.table.setCellWidget(row, 2, lunch_combo)
             
-            # Dinner column (Group 1 only)
+            # Dinner column
             dinner_combo = QComboBox()
+            dinner_combo.setStyleSheet(combo_style)
+            dinner_combo.setLayoutDirection(Qt.RightToLeft)
+            dinner_combo.view().setLayoutDirection(Qt.RightToLeft)
+            dinner_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+            dinner_combo.setMinimumContentsLength(1)
+            dinner_combo.setMinimumHeight(15)
+            dinner_combo.setEditable(False)
+            
             dinner_items = [item["name"] for item in self.items 
                           if item["eat_time"] == "Dinner" 
                           and item["group"] == 1
                           and item["name"] not in excluded_items]
             dinner_combo.addItems(dinner_items)
-            # Set random value
             if dinner_items:
                 dinner_combo.setCurrentIndex(random.randint(0, len(dinner_items) - 1))
             self.table.setCellWidget(row, 3, dinner_combo)
-        
-        # Enable save button after table is initialized
+
+        # Adjust table column widths
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self.table.setColumnWidth(0, 100)  # Width for the day column
+
+        # Enable save buttons after table is initialized
         self.save_excel_button.setEnabled(True)
         self.save_word_button.setEnabled(True)
         self.save_pdf_button.setEnabled(True)
