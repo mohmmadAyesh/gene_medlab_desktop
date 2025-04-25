@@ -6,11 +6,32 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                            QGroupBox, QFileDialog, QScrollArea, QCheckBox,
                            QTabWidget, QComboBox)
 from PySide6.QtCore import Qt
+import os
+import tempfile
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from docx2pdf import convert
+from docx import Document
+from docx.oxml.shared import OxmlElement, qn
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from PySide6.QtGui import QFont
+from docx.shared import Inches, Pt;
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 import openpyxl
 from openpyxl.worksheet.datavalidation import DataValidation
+from docx import Document
+from docx.shared import Pt, RGBColor, Inches
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from meal_items import MEAL_ITEMS, DIABETES_EXCLUDED_FOODS, KIDNEY_EXCLUDED_FOODS
-
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.oxml import parse_xml
+def create_element(name):
+    return OxmlElement(name)
+def create_attribute(element,name,value):
+    element.set(qn(name),value)
 class MealPlanner(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -88,11 +109,23 @@ class MealPlanner(QMainWindow):
         button_layout = QHBoxLayout()
         self.generate_button = QPushButton("Generate Meal Plan")
         self.generate_button.clicked.connect(self.generate_meal_plan)
-        self.save_button = QPushButton("Save to Excel")
-        self.save_button.clicked.connect(self.save_to_excel)
-        self.save_button.setEnabled(False)
+        self.save_excel_button = QPushButton("Save to Excel")
+        self.save_excel_button.clicked.connect(self.save_to_excel)
+        self.save_excel_button.setEnabled(False)
+        self.save_word_button = QPushButton("Save to Word")
+        self.save_word_button.clicked.connect(self.save_to_word)
+        self.save_word_button.setEnabled(False)
+        self.save_pdf_button = QPushButton("Save to PDF")
+        self.save_pdf_button.clicked.connect(self.save_to_pdf)
+        self.save_pdf_button.setEnabled(False)
+        self.save_gdocs_button = QPushButton("Save to Google Docs")
+        self.save_gdocs_button.clicked.connect(self.save_to_gdoc)
+        self.save_gdocs_button.setEnabled(False)
         button_layout.addWidget(self.generate_button)
-        button_layout.addWidget(self.save_button)
+        button_layout.addWidget(self.save_excel_button)
+        button_layout.addWidget(self.save_word_button)
+        button_layout.addWidget(self.save_pdf_button)
+        button_layout.addWidget(self.save_gdocs_button)
         
         # Table widget for displaying meal plan
         table_group = QGroupBox("Meal Plan")
@@ -254,7 +287,10 @@ class MealPlanner(QMainWindow):
             self.table.setCellWidget(row, 3, dinner_combo)
         
         # Enable save button after table is initialized
-        self.save_button.setEnabled(True)
+        self.save_excel_button.setEnabled(True)
+        self.save_word_button.setEnabled(True)
+        self.save_pdf_button.setEnabled(True)
+        self.save_gdocs_button.setEnabled(True)
 
     def generate_meal_plan(self):
         try:
@@ -387,8 +423,10 @@ class MealPlanner(QMainWindow):
                 self.table.cellWidget(row, 2).setCurrentText(lunch_combo)
                 self.table.cellWidget(row, 3).setCurrentText(dinner['name'])
             
-            # Enable save button
-            self.save_button.setEnabled(True)
+            # Enable both save buttons after successful generation
+            self.save_excel_button.setEnabled(True)
+            self.save_word_button.setEnabled(True)
+            self.save_pdf_button.setEnabled(True)
             
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to generate meal plan: {str(e)}")
@@ -475,6 +513,324 @@ class MealPlanner(QMainWindow):
             QMessageBox.information(self, "Success", "Meal plan saved successfully!")
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
+    def save_to_word(self):
+        try:
+            file_name, _ = QFileDialog.getSaveFileName(self, "Save Word File", "", "Word Files (*.docx)")
+            if not file_name:
+                return
+            excluded_items = self.get_excluded_items()
+            breakfast_group1_items = [item["name"] for item in self.items 
+                                if item["eat_time"] == "Breakfast" 
+                                and item["group"] == 1
+                                and item["name"] not in excluded_items]
+            breakfast_group2_items = [item["name"] for item in self.items 
+                                if item["eat_time"] == "Breakfast" 
+                                and item["group"] == 2  
+                                and item["name"] not in excluded_items]
+            breakfast_combinations = [f"{g1} + {g2}" for g1 in breakfast_group1_items 
+                                for g2 in breakfast_group2_items]
+            lunch_group1_items = [item["name"] for item in self.items 
+                                if item["eat_time"] == "Lunch" 
+                                and item["group"] == 1 
+                                and item["name"] not in excluded_items]
+            lunch_group2_items = [item["name"] for item in self.items 
+                                if item["eat_time"] == "Lunch" 
+                                and item["group"] == 2 
+                                and item["name"] not in excluded_items]
+            lunch_combinations = [f"{g1} + {g2}" for g1 in lunch_group1_items
+                                for g2 in lunch_group2_items]
+            dinner_items = [item["name"] for item in self.items 
+                            if item["eat_time"] == "Dinner" 
+                            and item["group"] == 1 
+                            and item["name"] not in excluded_items]
+            doc = Document()
+            conditions = []
+            if 1 in self.health_conditions:
+                conditions.append("Healthy")
+            if 2 in self.health_conditions:
+                conditions.append("Diabetes")
+            if 3 in self.health_conditions:
+                conditions.append("Kidney Disease")
+            doc.add_paragraph(f"Health Conditions: {', '.join(conditions)}")
+            table = doc.add_table(rows=1, cols=4)
+            table.style = 'Table Grid'
+            hdr_cells = table.rows[0].cells
+            headers = ["اليوم", "الإفطار", "الغداء", "العشاء"]
+            for i, header in enumerate(headers):
+                hdr_cells[i].text = header
+                hdr_cells[i].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
+            for row_idx in range(self.table.rowCount()):
+                row_cells = table.add_row().cells
+                day = self.table.item(row_idx, 0).text()
+                row_cells[0].text = day
+                row_cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
+                def create_dropdown(cell, options, selected=None):
+                    sdt = OxmlElement('w:sdt')
+                    sdtPr = OxmlElement('w:sdtPr')
+                    ddl = OxmlElement('w:dropDownList')
+                    for idx, option in enumerate(options):
+                        li  = OxmlElement('w:listItem')
+                        li.set(qn('w:displayText'),option)
+                        li.set(qn('w:value'),str(idx))
+                        ddl.append(li)
+                    sdtPr.append(ddl)
+                    sdt.append(sdtPr)
+                    sdtContent = OxmlElement('w:sdtContent')
+                    p = OxmlElement('w:p')
+                    r = OxmlElement('w:r')
+                    t = OxmlElement('w:t')
+                    current_value = selected if selected else options[0] if options else ''
+                    t.text = current_value
+                    r.append(t)
+                    p.append(r)
+                    sdtContent.append(p)
+                    sdt.append(sdtContent)
+                    cell._element.append(sdt)
+                breakfast_combo = self.table.cellWidget(row_idx, 1).currentText()
+                create_dropdown(row_cells[1], breakfast_combinations, breakfast_combo)
+                lunch_combo = self.table.cellWidget(row_idx, 2).currentText()
+                create_dropdown(row_cells[2], lunch_combinations, lunch_combo)
+                dinner_combo = self.table.cellWidget(row_idx, 3).currentText()
+                create_dropdown(row_cells[3], dinner_items, dinner_combo)
+            doc.save(file_name)
+            QMessageBox.information(self, "Success", "Meal plan saved successfully!")               
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save document: {str(e)}")
+    # def save_to_pdf(self):
+    #     try:
+    #         # Create a new Word document (we'll use this as an intermediate step)
+    #         doc = Document()
+            
+    #         # Add title
+    #         title = doc.add_heading('خطة الوجبات الأسبوعية', level=1)
+    #         title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            
+    #         # Create table
+    #         table = doc.add_table(rows=1, cols=4)
+    #         table.style = 'Table Grid'
+            
+    #         # Add headers
+    #         headers = table.rows[0].cells
+    #         headers[0].text = 'اليوم'
+    #         headers[1].text = 'الإفطار'
+    #         headers[2].text = 'الغداء'
+    #         headers[3].text = 'العشاء'
+            
+    #         # Set header style
+    #         for cell in headers:
+    #             for paragraph in cell.paragraphs:
+    #                 paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    #                 for run in paragraph.runs:
+    #                     run.font.bold = True
+    #                     run.font.size = Pt(12)
+            
+    #         # Add data rows from the table widget
+    #         for row in range(self.table.rowCount()):
+    #             cells = table.add_row().cells
+    #             # Day
+    #             cells[0].text = self.table.item(row, 0).text()
+    #             # Meals - only get the current selection
+    #             cells[1].text = self.table.cellWidget(row, 1).currentText()
+    #             cells[2].text = self.table.cellWidget(row, 2).currentText()
+    #             cells[3].text = self.table.cellWidget(row, 3).currentText()
+                
+    #             # Center align all cells
+    #             for cell in cells:
+    #                 for paragraph in cell.paragraphs:
+    #                     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            
+    #         # Set column widths
+    #         for column in table.columns:
+    #             for cell in column.cells:
+    #                 cell.width = Inches(2.5)
+            
+    #         # Get save file path
+    #         file_path, _ = QFileDialog.getSaveFileName(
+    #             self,
+    #             "Save PDF Document",
+    #             "",
+    #             "PDF Files (*.pdf)"
+    #         )
+            
+    #         if not file_path:
+    #             return
+                
+    #         # First save as docx
+    #         with tempfile.TemporaryDirectory() as temp_dir:
+    #             temp_docx  = os.path.join(temp_dir, "temp_meal_plan.docx")
+    #             doc.save(temp_docx)
+    #             convert(temp_docx, file_path)
+    #         QMessageBox.information(self, "Success", "Meal plan saved to PDF successfully!")
+    #     except Exception as e:
+    #         QMessageBox.critical(self, "Error", f"Failed to save PDF: {str(e)}")
+    def save_to_pdf(self):
+        try:
+        # Get save file path
+            file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save PDF Document",
+            "",
+            "PDF Files (*.pdf)"
+        )
+        
+            if not file_path:
+                return
+
+            from weasyprint import HTML, CSS
+            from weasyprint.text.fonts import FontConfiguration
+        
+        # Create HTML content
+            html_content = f"""
+        <html dir="rtl">
+        <head>
+            <meta charset="UTF-8">
+            <style>
+                @page {{
+                    size: A4;
+                    margin: 1cm;
+                }}
+                body {{
+                    font-family: Arial, sans-serif;
+                    direction: rtl;
+                }}
+                h1 {{
+                    text-align: center;
+                    color: black;
+                }}
+                table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin-top: 20px;
+                }}
+                th, td {{
+                    border: 1px solid black;
+                    padding: 8px;
+                    text-align: center;
+                }}
+                th {{
+                    background-color: #f2f2f2;
+                    font-weight: bold;
+                }}
+            </style>
+        </head>
+        <body>
+            <h1>خطة الوجبات الأسبوعية</h1>
+            <table>
+                <tr>
+                    <th>اليوم</th>
+                    <th>الإفطار</th>
+                    <th>الغداء</th>
+                    <th>العشاء</th>
+                </tr>
+        """
+        
+        # Add table rows
+            for row in range(self.table.rowCount()):
+                day = self.table.item(row, 0).text()
+                breakfast = self.table.cellWidget(row, 1).currentText()
+                lunch = self.table.cellWidget(row, 2).currentText()
+                dinner = self.table.cellWidget(row, 3).currentText()
+            
+                html_content += f"""
+                <tr>
+                    <td>{day}</td>
+                    <td>{breakfast}</td>
+                    <td>{lunch}</td>
+                    <td>{dinner}</td>
+                </tr>
+            """
+        
+            html_content += """
+            </table>
+        </body>
+        </html>
+        """
+        
+        # Configure fonts
+            font_config = FontConfiguration()
+        
+        # Create PDF
+            HTML(string=html_content).write_pdf(
+            file_path,
+            font_config=font_config,
+            presentational_hints=True
+            )
+        
+            QMessageBox.information(self, "Success", "Meal plan saved to PDF successfully!")
+        
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save PDF: {str(e)}")
+    def get_breakfast_combinations(self):
+        excluded_items  = self.get_excluded_items();
+        group1 = [item["name"] for item in self.items
+                  if item["eat_time"] == "Breakfast" and item["group"] == 1 and item["name"] not in excluded_items]
+        group2 = [item["name"] for item in self.items
+                  if item["eat_time"] == "Breakfast" and item["group"] == 2 and item["name"] not in excluded_items]
+        return [f"{g1} + {g2}" for g1 in group1 for g2 in group2]
+    def get_lunch_combinations(self):
+        excluded_items = self.get_excluded_items()
+        group1 = [item["name"] for item in self.items
+                  if item["eat_time"] == "Lunch" and item["group"] == 1 and item["name"] not in excluded_items]
+        group2 = [item["name"] for item in self.items
+                  if item["eat_time"] == "Lunch" and item["group"] == 2 and item["name"] not in excluded_items]
+        return [f"{g1} + {g2}" for g1 in group1 for g2 in group2]
+    def get_dinner_items(self):
+        excluded_items = self.get_excluded_items()
+        return [item["name"] for item in self.items
+                if item["eat_time"] == "Dinner" and item["group"] == 1 and item["name"] not in excluded_items]
+        
+    def get_gdocs_service(self):
+        SCOPES = ['https://www.googleapis.com/auth/documents', 'https://www.googleapis.com/auth/drive.file']
+        flow = InstalledAppFlow.from_client_secrets_file("google_doc_credential.json", SCOPES)
+        creds = flow.run_local_server(port=0)
+        return build('docs', 'v1', credentials=creds)
+    def get_health_conditions_text(self):
+        conditions = []
+        if hasattr(self,"health_conditions"):
+            if 1 in self.health_conditions:
+                conditions.append("Healthy")
+            if 2 in self.health_conditions:
+                conditions.append("Diabetes")
+            if 3 in self.health_conditions:
+                conditions.append("Kidney Disease")
+        return conditions;
+    def save_to_gdoc(self):
+        try:
+            service = self.get_gdocs_service()
+            title = "Generated Meal Plan"
+            doc = service.documents().create(body={"title": title}).execute()
+            doc_id = doc['documentId']
+
+            # Basic content
+            requests = []
+            requests.append({
+                'insertText': {
+                    'location': {'index': 1},
+                    'text': f"Health Conditions: {', '.join(self.get_health_conditions_text())}\n\n"
+                }
+            })
+
+            for row_idx in range(self.table.rowCount()):
+                day = self.table.item(row_idx, 0).text()
+                breakfast = self.table.cellWidget(row_idx, 1).currentText()
+                lunch = self.table.cellWidget(row_idx, 2).currentText()
+                dinner = self.table.cellWidget(row_idx, 3).currentText()
+
+                for label, options, selected in [("الإفطار", self.get_breakfast_combinations(), breakfast),
+                                             ("الغداء", self.get_lunch_combinations(), lunch),
+                                             ("العشاء", self.get_dinner_items(), dinner)]:
+                    requests.append({
+                        "insertText": {
+                            "location": {"index": 1},
+                            "text": f"{day} - {label}: {selected}\n"
+                        }
+                    })
+
+            service.documents().batchUpdate(documentId=doc_id, body={"requests": requests}).execute()
+            QMessageBox.information(self, "Success", f"Google Doc created: https://docs.google.com/document/d/{doc_id}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to create Google Doc: {str(e)}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
