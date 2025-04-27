@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                            QTableWidget, QTableWidgetItem, QMessageBox,
                            QGroupBox, QFileDialog, QScrollArea, QCheckBox,
                            QTabWidget, QComboBox, QHeaderView, QFormLayout,
-                           QLineEdit)
+                           QLineEdit, QInputDialog)
 from PySide6.QtCore import Qt
 import os
 import tempfile
@@ -1409,58 +1409,55 @@ class MealPlanner(QMainWindow):
 
     def save_to_template_word(self):
         try:
-            # Step 1: Load template
-            template_path = "num133333 (5).docx"
+            # Step 1: List available templates
+            templates_dir = "templates"
+            template_files = [f for f in os.listdir(templates_dir) if f.endswith('.docx')]
+            if not template_files:
+                QMessageBox.critical(self, "Error", "No template files found in the templates folder!")
+                return
+            # Step 2: Show popup for user to select a template
+            template_file, ok = QInputDialog.getItem(self, "Select Template", "Choose a template:", template_files, 0, False)
+            if not ok or not template_file:
+                return
+            template_path = os.path.join(templates_dir, template_file)
             if not os.path.exists(template_path):
                 QMessageBox.critical(self, "Error", "Template file not found!")
                 return
-                
             doc = Document(template_path)
-            
-            # Step 2: Get meal options and current selections
+            # Step 3: Get meal options and current selections
             breakfast_options = self.get_breakfast_combinations()
             lunch_options = self.get_lunch_combinations()
             dinner_options = self.get_dinner_items()
-            
-            # Step 3: Create replacements dictionary with current selections
+            # Step 4: Create replacements dictionary with current selections
             replacements = {}
             for row in range(self.table.rowCount()):
                 day_num = row + 1
                 breakfast_key = f"Bf{day_num}"
                 lunch_key = f"Lunch{day_num}"
                 dinner_key = f"Dinner{day_num}"
-                
                 breakfast_selected = self.table.cellWidget(row, 1).currentText()
                 lunch_selected = self.table.cellWidget(row, 2).currentText()
                 dinner_selected = self.table.cellWidget(row, 3).currentText()
-                
                 replacements[breakfast_key] = (breakfast_options, breakfast_selected)
                 replacements[lunch_key] = (lunch_options, lunch_selected)
                 replacements[dinner_key] = (dinner_options, dinner_selected)
-
-            # Step 4: Process shapes in the document
+            # Step 5: Process shapes in the document
             for shape in doc.part.package.parts:
                 if hasattr(shape, '_element') and hasattr(shape._element, 'txbx'):
                     try:
                         text_frame = shape._element.txbx
                         if text_frame is not None:
                             text_content = text_frame.text
-                            
-                            # Check for placeholders
                             for key, (options, selected) in replacements.items():
                                 if key in text_content:
-                                    # Create new paragraph with dropdown
                                     new_p = OxmlElement('w:p')
                                     dropdown = create_dropdown_element(options, selected)
                                     new_p.append(dropdown)
-                                    
-                                    # Replace text frame content
                                     text_frame.clear_content()
                                     text_frame._element.append(new_p)
                     except Exception as shape_error:
                         print(f"Error processing shape: {shape_error}")
                         continue
-
             # Alternative approach using word._element
             body = doc._element.body
             for shape in body.findall('.//w:txbxContent', {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}):
@@ -1469,30 +1466,22 @@ class MealPlanner(QMainWindow):
                     for run in paragraph.findall('.//w:t', {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}):
                         if run.text:
                             text_content += run.text
-                    
-                    # Check for placeholders
                     for key, (options, selected) in replacements.items():
                         if key in text_content:
-                            # Clear paragraph content
                             for child in list(paragraph):
                                 paragraph.remove(child)
-                            
-                            # Add dropdown
                             dropdown = create_dropdown_element(options, selected)
                             paragraph.append(dropdown)
-
-            # Step 5: Save the document
+            # Step 6: Save the document
             save_path, _ = QFileDialog.getSaveFileName(
                 self,
                 "Save File",
                 "",
                 "Word Files (*.docx)"
             )
-            
             if save_path:
                 doc.save(save_path)
                 QMessageBox.information(self, "Success", "Meal plan saved with template successfully!")
-                
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save with template: {str(e)}")
             import traceback
