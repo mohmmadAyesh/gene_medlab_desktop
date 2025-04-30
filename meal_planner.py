@@ -28,10 +28,13 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from docx import Document
 from docx.shared import Pt, RGBColor, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from meal_items import MEAL_ITEMS, DIABETES_EXCLUDED_FOODS, KIDNEY_EXCLUDED_FOODS
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.oxml import parse_xml
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from models import Base
+from models import MealItem,ExclusionRule,HealthCondition
 def create_element(name):
     return OxmlElement(name)
 def create_attribute(element,name,value):
@@ -60,8 +63,9 @@ def create_dropdown_element(options, selected=None):
     return sdt
 
 class MealPlanner(QMainWindow):
-    def __init__(self):
+    def __init__(self,db_session):
         super().__init__()
+        self.db = db_session
         self.setWindowTitle("Meal Planner")
         self.setMinimumSize(1200, 800)
         self.health_conditions = []
@@ -421,7 +425,7 @@ class MealPlanner(QMainWindow):
         """)
         table_layout.addWidget(self.table)
         table_group.setLayout(table_layout)
-        
+        self.items = self.db.query(MealItem).all()
         # Add widgets to main tab layout
         main_layout.addWidget(input_group)
         main_layout.addLayout(button_layout)
@@ -442,11 +446,14 @@ class MealPlanner(QMainWindow):
         
         # Create checkboxes for each meal item
         self.exclusion_checkboxes = {}
-        for item in MEAL_ITEMS:
-            checkbox = QCheckBox(item["name"])
+        for m in self.items:
+            checkbox = QCheckBox(m.name)
+        # for item in MEAL_ITEMS:
+        #     checkbox = QCheckBox(item["name"])
             checkbox.setLayoutDirection(Qt.RightToLeft)
             checkbox.setChecked(False)
-            self.exclusion_checkboxes[item["name"]] = checkbox
+            # self.exclusion_checkboxes[item["name"]] = checkbox
+            self.exclusion_checkboxes[m.name] = checkbox
             scroll_layout.addWidget(checkbox)
         
         scroll.setWidget(scroll_content)
@@ -461,7 +468,6 @@ class MealPlanner(QMainWindow):
         layout.addWidget(tabs)
         
         # Initialize items list
-        self.items = MEAL_ITEMS
         
         # Days of the week in Arabic
         self.days = [
@@ -655,43 +661,6 @@ class MealPlanner(QMainWindow):
         self.diabetes_table.setColumnWidth(1, 150)
         self.diabetes_table.verticalHeader().setDefaultSectionSize(50)
         
-        self.diabetes_table.setRowCount(len(DIABETES_EXCLUDED_FOODS))
-        for row, item in enumerate(DIABETES_EXCLUDED_FOODS):
-            # Name
-            name_item = QTableWidgetItem(item["name"])
-            name_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self.diabetes_table.setItem(row, 0, name_item)
-            
-            # Actions
-            actions_widget = QWidget()
-            actions_layout = QHBoxLayout(actions_widget)
-            actions_layout.setContentsMargins(4, 4, 4, 4)
-            actions_layout.setSpacing(8)
-            actions_layout.setAlignment(Qt.AlignCenter)
-            
-            delete_button = QPushButton("حذف")
-            delete_button.setProperty("type", "delete")
-            delete_button.setStyleSheet("""
-                QPushButton {
-                    padding: 8px 16px;
-                    border-radius: 6px;
-                    font-size: 13px;
-                    min-width: 70px;
-                    min-height: 30px;
-                    margin: 2px;
-                }
-                QPushButton[type="delete"] {
-                    background-color: #ef4444;
-                    color: white;
-                }
-                QPushButton:hover {
-                    opacity: 0.9;
-                }
-            """)
-            delete_button.clicked.connect(lambda checked, r=row: self.delete_diabetes_exclusion(r))
-            
-            actions_layout.addWidget(delete_button)
-            self.diabetes_table.setCellWidget(row, 1, actions_widget)
         
         diabetes_layout.addWidget(self.diabetes_table)
         diabetes_group.setLayout(diabetes_layout)
@@ -708,45 +677,6 @@ class MealPlanner(QMainWindow):
         self.kidney_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
         self.kidney_table.setColumnWidth(1, 150)
         self.kidney_table.verticalHeader().setDefaultSectionSize(50)
-        
-        self.kidney_table.setRowCount(len(KIDNEY_EXCLUDED_FOODS))
-        for row, item in enumerate(KIDNEY_EXCLUDED_FOODS):
-            # Name
-            name_item = QTableWidgetItem(item["name"])
-            name_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self.kidney_table.setItem(row, 0, name_item)
-            
-            # Actions
-            actions_widget = QWidget()
-            actions_layout = QHBoxLayout(actions_widget)
-            actions_layout.setContentsMargins(4, 4, 4, 4)
-            actions_layout.setSpacing(8)
-            actions_layout.setAlignment(Qt.AlignCenter)
-            
-            delete_button = QPushButton("حذف")
-            delete_button.setProperty("type", "delete")
-            delete_button.setStyleSheet("""
-                QPushButton {
-                    padding: 8px 16px;
-                    border-radius: 6px;
-                    font-size: 13px;
-                    min-width: 70px;
-                    min-height: 30px;
-                    margin: 2px;
-                }
-                QPushButton[type="delete"] {
-                    background-color: #ef4444;
-                    color: white;
-                }
-                QPushButton:hover {
-                    opacity: 0.9;
-                }
-            """)
-            delete_button.clicked.connect(lambda checked, r=row: self.delete_kidney_exclusion(r))
-            
-            actions_layout.addWidget(delete_button)
-            self.kidney_table.setCellWidget(row, 1, actions_widget)
-        
         kidney_layout.addWidget(self.kidney_table)
         kidney_group.setLayout(kidney_layout)
         
@@ -781,20 +711,18 @@ class MealPlanner(QMainWindow):
 
     def get_excluded_items(self):
         """Get combined list of manually excluded items and condition-based exclusions"""
-        # Get manually excluded items
-        manual_exclusions = [name for name, checkbox in self.exclusion_checkboxes.items() 
-                        if checkbox.isChecked()]
-    
-        # Add condition-based exclusions (now getting the names from the dictionaries)
-        condition_exclusions = []
-        if 2 in self.health_conditions:  # Diabetes
-            condition_exclusions.extend([item["name"] for item in DIABETES_EXCLUDED_FOODS])
-        if 3 in self.health_conditions:  # Kidney disease
-            condition_exclusions.extend([item["name"] for item in KIDNEY_EXCLUDED_FOODS])
-    
-        # Return unique list of excluded item names
-        all_exclusions = manual_exclusions + condition_exclusions
-        return list(set(all_exclusions))
+        #1) manually toggled ones:
+        manual = [name for name, cb in self.exclusion_checkboxes.items() if cb.isChecked()]
+        if not self.health_conditions:
+            return manual
+        cond_ids = self.health_conditions
+        q = (
+            self.db.query(MealItem.name)
+            .join(ExclusionRule,ExclusionRule.item_id == MealItem.item_id)
+            .filter(ExclusionRule.condition_id.in_(cond_ids))
+        )
+        db_excluded = [row[0] for row in q.all()]
+        return list(set(manual + db_excluded))
 
     def initialize_table(self):
         self.table.setRowCount(len(self.days))
@@ -841,8 +769,7 @@ class MealPlanner(QMainWindow):
         border-top: 5px solid #6b7280;
         }
         """
-       
-        # Create dropdowns for each meal cell
+        # # Create dropdowns for each meal cell
         for row in range(len(self.days)):
             # Day column
             day_item = QTableWidgetItem(self.days[row])
@@ -859,16 +786,30 @@ class MealPlanner(QMainWindow):
             breakfast_combo.setMinimumContentsLength(1)
             breakfast_combo.setMinimumHeight(42)
             breakfast_combo.setEditable(False)
-            breakfast_group1_items = [item["name"] for item in self.items 
-                                    if item["eat_time"] == "Breakfast" 
-                                    and item["group"] == 1
-                                    and item["name"] not in excluded_items]
-            breakfast_group2_items = [item["name"] for item in self.items 
-                                    if item["eat_time"] == "Breakfast" 
-                                    and item["group"] == 2
-                                    and item["name"] not in excluded_items]
-            breakfast_combinations = [f"{g1} + {g2}" for g1 in breakfast_group1_items 
-                                    for g2 in breakfast_group2_items]
+            # breakfast_group1_items = [item["name"] for item in self.items 
+            #                         if item["eat_time"] == "Breakfast" 
+            #                         and item["group"] == 1
+            #                         and item["name"] not in excluded_items]
+            breakfast_group1_items = [
+                m.name for m in (
+                    self.db
+                    .query(MealItem)
+                    .filter_by(eat_time = 'Breakfast',group = 1)
+                    .all()
+                )
+            ]
+            breakfast_group2_items = [
+                m.name for m in (
+                    self.db
+                    .query(MealItem)
+                    .filter_by(eat_time = 'Breakfast',group = 2)
+                    .all()
+                )
+            ]
+            breakfast_combinations = [f"{g1} + {g2}"
+                                  for g1 in breakfast_group1_items
+                                  for g2 in breakfast_group2_items]
+            breakfast_combo.addItems(breakfast_combinations)
             breakfast_combo.addItems(breakfast_combinations)
             if breakfast_combinations:
                 breakfast_combo.setCurrentIndex(random.randint(0, len(breakfast_combinations) - 1))
@@ -883,16 +824,37 @@ class MealPlanner(QMainWindow):
             lunch_combo.setMinimumContentsLength(1)
             lunch_combo.setMinimumHeight(42)
             lunch_combo.setEditable(False)
-            lunch_group1_items = [item["name"] for item in self.items 
-                                if item["eat_time"] == "Lunch" 
-                                and item["group"] == 1
-                                and item["name"] not in excluded_items]
-            lunch_group2_items = [item["name"] for item in self.items 
-                                if item["eat_time"] == "Lunch" 
-                                and item["group"] == 2
-                                and item["name"] not in excluded_items]
-            lunch_combinations = [f"{g1} + {g2}" for g1 in lunch_group1_items 
-                                for g2 in lunch_group2_items]
+            # lunch_group1_items = [item["name"] for item in self.items 
+            #                     if item["eat_time"] == "Lunch" 
+            #                     and item["group"] == 1
+            #                     and item["name"] not in excluded_items]
+            # lunch_group2_items = [item["name"] for item in self.items 
+            #                     if item["eat_time"] == "Lunch" 
+            #                     and item["group"] == 2
+            #                     and item["name"] not in excluded_items]
+            # lunch_combinations = [f"{g1} + {g2}" for g1 in lunch_group1_items 
+            #                     for g2 in lunch_group2_items]
+            lunch_group1_items = [
+                m.name for m in (
+                    self.db
+                    .query(MealItem)
+                    .filter_by(eat_time='Lunch', group=1)
+                    .filter(~MealItem.name.in_(excluded_items))
+                    .all()
+            )
+            ]
+            lunch_group2_items = [
+            m.name for m in (
+                self.db
+                    .query(MealItem)
+                    .filter_by(eat_time='Lunch', group=2)
+                    .filter(~MealItem.name.in_(excluded_items))
+                    .all()
+            )
+            ]
+            lunch_combinations = [f"{g1} + {g2}"
+                              for g1 in lunch_group1_items
+                              for g2 in lunch_group2_items]
             lunch_combo.addItems(lunch_combinations)
             if lunch_combinations:
                 lunch_combo.setCurrentIndex(random.randint(0, len(lunch_combinations) - 1))
@@ -908,10 +870,19 @@ class MealPlanner(QMainWindow):
             dinner_combo.setMinimumHeight(15)
             dinner_combo.setEditable(False)
             
-            dinner_items = [item["name"] for item in self.items 
-                          if item["eat_time"] == "Dinner" 
-                          and item["group"] == 1
-                          and item["name"] not in excluded_items]
+            # dinner_items = [item["name"] for item in self.items 
+            #               if item["eat_time"] == "Dinner" 
+            #               and item["group"] == 1
+            #               and item["name"] not in excluded_items]
+            dinner_items = [
+                m.name for m in (
+                    self.db
+                    .query(MealItem)
+                    .filter_by(eat_time='Dinner', group=1)
+                    .filter(~MealItem.name.in_(excluded_items))
+                    .all()
+                )
+            ]
             dinner_combo.addItems(dinner_items)
             if dinner_items:
                 dinner_combo.setCurrentIndex(random.randint(0, len(dinner_items) - 1))
@@ -1650,28 +1621,13 @@ class MealPlanner(QMainWindow):
             print(traceback.format_exc())
 
     def initialize_meal_items_table(self):
-        """Initialize the meal items table with data"""
-        self.meal_items_table.setRowCount(len(MEAL_ITEMS))
-        self.meal_items_table.setColumnCount(4)  # Explicitly set column count
-        self.meal_items_table.setHorizontalHeaderLabels(["الاسم", "وقت الوجبة", "المجموعة", "الإجراءات"])
-        
-        # Disable the last section resize mode to prevent extra column
-        self.meal_items_table.horizontalHeader().setStretchLastSection(False)
-        
-        # Set column widths and resize modes
-        self.meal_items_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.meal_items_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
-        self.meal_items_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Fixed)
-        self.meal_items_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
-        
-        self.meal_items_table.setColumnWidth(1, 100)
-        self.meal_items_table.setColumnWidth(2, 80)
-        self.meal_items_table.setColumnWidth(3, 200)  # Wider for buttons
-        
-        # Set consistent row height
-        self.meal_items_table.verticalHeader().setDefaultSectionSize(50)
-        
-        # Update button and table styles
+        # pull all MealItem rows and keep them in order
+        self.all_meal_items = (
+            self.db
+            .query(MealItem)
+            .order_by(MealItem.name)
+            .all()
+        )
         button_style = """
             QPushButton {
                 padding: 8px 16px;
@@ -1693,44 +1649,51 @@ class MealPlanner(QMainWindow):
                 opacity: 0.9;
             }
         """
+        self.meal_items_table.setRowCount(len(self.all_meal_items))
+        for row, mi in enumerate(self.all_meal_items):
+            name_item = QTableWidgetItem(mi.name)
+            name_item.setTextAlignment(Qt.AlignRight|Qt.AlignVCenter)
+            self.meal_items_table.setItem(row,0,name_item)
+            et = QTableWidgetItem(mi.eat_time)
+            et.setTextAlignment(Qt.AlignCenter)
+            self.meal_items_table.setItem(row,1,et)
+            grp = QTableWidgetItem(str(mi.group)) 
+            grp.setTextAlignment(Qt.AlignCenter)
+            self.meal_items_table.setItem(row,2,grp)
+            btn_edit = QPushButton("تعديل")
+            btn_edit.setProperty("type","edit")
+            btn_edit.setStyleSheet(button_style)
+            btn_edit.clicked.connect(lambda checked, r = row: self.edit_meal_item_clicked(r))
+            btn_delete = QPushButton("حذف")
+            btn_delete.setProperty("type","delete")
+            btn_delete.clicked.connect(lambda _, r=row: self.delete_meal_item_db(r))
+            w= QWidget()
+            lay=QHBoxLayout(w)
+            lay.setContentsMargins(0,0,0,0)
+            lay.setSpacing(4)
+            lay.addWidget(btn_edit)
+            lay.addWidget(btn_delete)
+            self.meal_items_table.setCellWidget(row,3,w)            
+        # Disable the last section resize mode to prevent extra column
+        self.meal_items_table.horizontalHeader().setStretchLastSection(False)
         
-        for row, item in enumerate(MEAL_ITEMS):
-            # Name
-            name_item = QTableWidgetItem(item["name"])
-            name_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self.meal_items_table.setItem(row, 0, name_item)
-            
-            # Eat Time
-            eat_time_item = QTableWidgetItem(item["eat_time"])
-            eat_time_item.setTextAlignment(Qt.AlignCenter)
-            self.meal_items_table.setItem(row, 1, eat_time_item)
-            
-            # Group
-            group_item = QTableWidgetItem(str(item["group"]))
-            group_item.setTextAlignment(Qt.AlignCenter)
-            self.meal_items_table.setItem(row, 2, group_item)
-            
-            # Actions
-            actions_widget = QWidget()
-            actions_layout = QHBoxLayout(actions_widget)
-            actions_layout.setContentsMargins(4, 4, 4, 4)
-            actions_layout.setSpacing(8)
-            
-            edit_button = QPushButton("تعديل")
-            edit_button.setProperty("type", "edit")
-            edit_button.setStyleSheet(button_style)
-            edit_button.clicked.connect(lambda checked, r=row: self.edit_meal_item_clicked(r))
-            
-            delete_button = QPushButton("حذف")
-            delete_button.setProperty("type", "delete")
-            delete_button.setStyleSheet(button_style)
-            delete_button.clicked.connect(lambda checked, r=row: self.delete_meal_item(r))
-            
-            actions_layout.addWidget(edit_button)
-            actions_layout.addWidget(delete_button)
-            actions_layout.setAlignment(Qt.AlignCenter)
-            
-            self.meal_items_table.setCellWidget(row, 3, actions_widget)
+        # Set column widths and resize modes
+        self.meal_items_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.meal_items_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
+        self.meal_items_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Fixed)
+        self.meal_items_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
+        
+        self.meal_items_table.setColumnWidth(1, 100)
+        self.meal_items_table.setColumnWidth(2, 80)
+        self.meal_items_table.setColumnWidth(3, 200)  # Wider for buttons
+        
+        # Set consistent row height
+        self.meal_items_table.verticalHeader().setDefaultSectionSize(50)
+        
+        # Update button and table styles
+
+        
+        
 
     def initialize_excluded_foods_tables(self):
         # Common table style
@@ -1773,199 +1736,171 @@ class MealPlanner(QMainWindow):
                 opacity: 0.9;
             }
         """
-
         # Initialize Diabetes Excluded Foods table
         self.diabetes_table.setStyleSheet(table_style)
         self.diabetes_table.setColumnCount(2)
         self.diabetes_table.setHorizontalHeaderLabels(["الاسم", "الإجراءات"])
-        self.diabetes_table.horizontalHeader().setStretchLastSection(False)
         self.diabetes_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.diabetes_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
         self.diabetes_table.setColumnWidth(1, 150)
         self.diabetes_table.verticalHeader().setDefaultSectionSize(50)
-        
-        self.diabetes_table.setRowCount(len(DIABETES_EXCLUDED_FOODS))
-        for row, item in enumerate(DIABETES_EXCLUDED_FOODS):
-            # Name
-            name_item = QTableWidgetItem(item["name"])
-            name_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self.diabetes_table.setItem(row, 0, name_item)
-            
-            # Actions
-            actions_widget = QWidget()
-            actions_layout = QHBoxLayout(actions_widget)
-            actions_layout.setContentsMargins(4, 4, 4, 4)
-            actions_layout.setSpacing(8)
-            actions_layout.setAlignment(Qt.AlignCenter)
-            
-            delete_button = QPushButton("حذف")
-            delete_button.setProperty("type", "delete")
-            delete_button.setStyleSheet(button_style)
-            delete_button.clicked.connect(lambda checked, r=row: self.delete_diabetes_exclusion(r))
-            
-            actions_layout.addWidget(delete_button)
-            self.diabetes_table.setCellWidget(row, 1, actions_widget)
-
-        # Initialize Kidney Excluded Foods table
+        # Kidney table styling & headers (mirror diabetes)
         self.kidney_table.setStyleSheet(table_style)
         self.kidney_table.setColumnCount(2)
         self.kidney_table.setHorizontalHeaderLabels(["الاسم", "الإجراءات"])
-        self.kidney_table.horizontalHeader().setStretchLastSection(False)
         self.kidney_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.kidney_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
         self.kidney_table.setColumnWidth(1, 150)
         self.kidney_table.verticalHeader().setDefaultSectionSize(50)
-        
-        self.kidney_table.setRowCount(len(KIDNEY_EXCLUDED_FOODS))
-        for row, item in enumerate(KIDNEY_EXCLUDED_FOODS):
-            # Name
-            name_item = QTableWidgetItem(item["name"])
-            name_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self.kidney_table.setItem(row, 0, name_item)
-            
-            # Actions
-            actions_widget = QWidget()
-            actions_layout = QHBoxLayout(actions_widget)
-            actions_layout.setContentsMargins(4, 4, 4, 4)
-            actions_layout.setSpacing(8)
-            actions_layout.setAlignment(Qt.AlignCenter)
-            
-            delete_button = QPushButton("حذف")
-            delete_button.setProperty("type", "delete")
-            delete_button.setStyleSheet(button_style)
-            delete_button.clicked.connect(lambda checked, r=row: self.delete_kidney_exclusion(r))
-            
-            actions_layout.addWidget(delete_button)
-            self.kidney_table.setCellWidget(row, 1, actions_widget)
-        
+        def populate(table,condition_id,delete_slot):
+            rules = (
+                self.db
+                .query(ExclusionRule)
+                .filter_by(condition_id = condition_id)
+                .join(MealItem)
+                .all()
+            )
+            table.setRowCount(len(rules))
+            for row, rule in enumerate(rules):
+                name_item = QTableWidgetItem(rule.item.name)
+                name_item.setTextAlignment(Qt.AlignRight|Qt.AlignVCenter)
+                table.setItem(row,0,name_item)
+                btn = QPushButton("حذف")
+                btn.setProperty("type","delete")
+                btn.setStyleSheet(button_style)
+                btn.clicked.connect(lambda _, rid=rule.rule_id: delete_slot(rid))
+                w = QWidget()
+                lay = QHBoxLayout(w)
+                lay.setContentsMargins(0,0,0,0)
+                lay.addWidget(btn)
+                table.setCellWidget(row,1,w)
+        populate(self.diabetes_table,2,self.delete_exclusion_rule)
+        populate(self.kidney_table,3,self.delete_exclusion_rule)
         self.diabetes_table.resizeColumnsToContents()
         self.kidney_table.resizeColumnsToContents()
-
+        
+    def delete_exclusion_rule(self,rule_id):
+        """Remove an Exclusion by its PK, then refresh both tables."""
+        rule = self.db.get(ExclusionRule,rule_id)
+        if rule:
+            self.db.delete(rule)
+            self.db.commit()
+            self.initialize_excluded_foods_tables()
     def add_meal_item(self):
         name = self.meal_name_edit.text().strip()
         eat_time = self.meal_eat_time_combo.currentText()
-        group = self.meal_group_spin.value()
+        group_ = self.meal_group_spin.value()
         
         if not name:
             QMessageBox.warning(self, "Error", "Please enter a name for the meal item.")
             return
         
         # Add to MEAL_ITEMS
-        MEAL_ITEMS.append({
-            "name": name,
-            "eat_time": eat_time,
-            "group": group
-        })
-        
-        # Refresh table
+        mi = MealItem(name = name,eat_time = eat_time,group = group_)
+        try:
+            self.db.add(mi)
+            self.db.commit()
+        except IntegrityError:
+            self.db.rollback()
+            QMessageBox.warning(self,"Error","That meal already Exists")
         self.initialize_meal_items_table()
-        
-        # Clear form
         self.meal_name_edit.clear()
         self.meal_eat_time_combo.setCurrentIndex(0)
         self.meal_group_spin.setValue(1)
 
     def edit_meal_item_clicked(self, row):
         """Handle edit button click in table"""
-        item = MEAL_ITEMS[row]
-        self.meal_name_edit.setText(item["name"])
-        self.meal_eat_time_combo.setCurrentText(item["eat_time"])
-        self.meal_group_spin.setValue(item["group"])
+        mi = self.all_meal_items[row]
+        self.current_edit_item = mi
+        self.meal_name_edit.setText(mi.name)
+        self.meal_eat_time_combo.setCurrentText(mi.eat_time)
+        self.meal_group_spin.setValue(mi.group)
         self.edit_meal_button.setEnabled(True)
         self.add_meal_button.setEnabled(False)
-        self.current_edit_row = row
+        
 
     def edit_meal_item(self):
-        if not hasattr(self, 'current_edit_row'):
+        mi = getattr(self,"current_edit_item",None)
+        if not mi:
             return
-            
         name = self.meal_name_edit.text().strip()
         eat_time = self.meal_eat_time_combo.currentText()
-        group = self.meal_group_spin.value()
-        
+        group_ = self.meal_group_spin.value()
         if not name:
-            QMessageBox.warning(self, "Error", "Please enter a name for the meal item.")
+            QMessageBox.warning(self,"Error","Please enter a name")
             return
-        
-        # Update MEAL_ITEMS
-        MEAL_ITEMS[self.current_edit_row] = {
-            "name": name,
-            "eat_time": eat_time,
-            "group": group
-        }
-        
-        # Refresh table
+        mi.name = name
+        mi.eat_time = eat_time
+        mi.group = group_
+        self.db.commit()
         self.initialize_meal_items_table()
-        
-        # Clear form and reset buttons
         self.meal_name_edit.clear()
         self.meal_eat_time_combo.setCurrentIndex(0)
         self.meal_group_spin.setValue(1)
         self.edit_meal_button.setEnabled(False)
         self.add_meal_button.setEnabled(True)
-        delattr(self, 'current_edit_row')
-
-    def delete_meal_item(self, row):
-        reply = QMessageBox.question(self, 'Confirm Delete',
-                                   'Are you sure you want to delete this meal item?',
-                                   QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        
-        if reply == QMessageBox.Yes:
-            MEAL_ITEMS.pop(row)
+        del self.current_edit_item
+    def delete_meal_item_db(self, row):
+        """"Delete the MealItem at the given row from the DB and refresh the table."""
+        mi = self.all_meal_items[row]
+        confirm = QMessageBox.question(
+            self,
+            "Confirm Delete",
+            f"Are you sure you want to delete {mi.name} ?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if confirm == QMessageBox.Yes:
+            self.db.delete(mi)
+            self.db.commit()
             self.initialize_meal_items_table()
-
     def add_diabetes_exclusion(self):
-        name = self.diabetes_name_edit.text().strip()
-        
-        if not name:
-            QMessageBox.warning(self, "Error", "Please enter a name for the excluded food.")
+        name = self.diabetest_name_edit.text().strip()
+        mi = self.db.query(MealItem).filter_by(name = name).first()
+        if not mi:
+            QMessageBox.warning(self,"Error","That meal item does not exist")
             return
-        
-        # Add to DIABETES_EXCLUDED_FOODS
-        DIABETES_EXCLUDED_FOODS.append({"name": name})
-        
-        # Refresh table
+        er = ExclusionRule(item_id = mi.item_id,condition_id = 2)
+        self.db.add(er)
+        self.db.commit()
         self.initialize_excluded_foods_tables()
-        
-        # Clear form
-        self.diabetes_name_edit.clear()
+        self.diabetest_name_edit.clear()
 
-    def delete_diabetes_exclusion(self, row):
-        reply = QMessageBox.question(self, 'Confirm Delete',
-                                   'Are you sure you want to delete this excluded food?',
-                                   QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+    # def delete_diabetes_exclusion(self, row):
+    #     reply = QMessageBox.question(self, 'Confirm Delete',
+    #                                'Are you sure you want to delete this excluded food?',
+    #                                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         
-        if reply == QMessageBox.Yes:
-            DIABETES_EXCLUDED_FOODS.pop(row)
-            self.initialize_excluded_foods_tables()
+    #     if reply == QMessageBox.Yes:
+    #         DIABETES_EXCLUDED_FOODS.pop(row)
+    #         self.initialize_excluded_foods_tables()
 
     def add_kidney_exclusion(self):
         name = self.kidney_name_edit.text().strip()
-        
-        if not name:
-            QMessageBox.warning(self, "Error", "Please enter a name for the excluded food.")
+        mi = self.db.query(MealItem).filter_by(name = name).first()
+        if not mi:
+            QMessageBox.warning(self,"Error","That meal item does not exist")
             return
-        
-        # Add to KIDNEY_EXCLUDED_FOODS
-        KIDNEY_EXCLUDED_FOODS.append({"name": name})
-        
-        # Refresh table
+        er = ExclusionRule(item_id = mi.item_id,condition_id = 3)
+        self.db.add(er)
+        self.db.commit()
         self.initialize_excluded_foods_tables()
-        
-        # Clear form
         self.kidney_name_edit.clear()
 
-    def delete_kidney_exclusion(self, row):
-        reply = QMessageBox.question(self, 'Confirm Delete',
-                                   'Are you sure you want to delete this excluded food?',
-                                   QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+    # def delete_kidney_exclusion(self, row):
+    #     reply = QMessageBox.question(self, 'Confirm Delete',
+    #                                'Are you sure you want to delete this excluded food?',
+    #                                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         
-        if reply == QMessageBox.Yes:
-            KIDNEY_EXCLUDED_FOODS.pop(row)
-            self.initialize_excluded_foods_tables()
+    #     if reply == QMessageBox.Yes:
+    #         KIDNEY_EXCLUDED_FOODS.pop(row)
+    #         self.initialize_excluded_foods_tables()
 
 if __name__ == "__main__":
+    from sqlalchemy.orm import scoped_session
+    from database import SessionLocal
+    session = scoped_session(SessionLocal)
     app = QApplication(sys.argv)
-    window = MealPlanner()
+    window = MealPlanner(session)
     window.show()
     sys.exit(app.exec()) 
