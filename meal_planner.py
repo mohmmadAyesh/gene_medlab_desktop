@@ -1530,26 +1530,59 @@ class MealPlanner(QMainWindow):
 
     def save_to_template_word(self):
         try:
-            # Step 1: List available templates
-            templates_dir = "templates"
+            # Step 1: Ask user to choose template source
+            template_sources = ["Genaty Templates", "Airtable Templates"]
+            source, ok = QInputDialog.getItem(
+                self,
+                "Select Template Source",
+                "Choose template source:",
+                template_sources,
+                0,
+                False
+            )
+            
+            if not ok or not source:
+                return
+                
+            # Step 2: Get templates from selected source
+            if source == "Genaty Templates":
+                templates_dir = "templates"
+            else:  # Airtable Templates
+                templates_dir = "airtable_templates"
+                
+            if not os.path.exists(templates_dir):
+                QMessageBox.critical(self, "Error", f"Template directory '{templates_dir}' not found!")
+                return
+                
             template_files = [f for f in os.listdir(templates_dir) if f.endswith('.docx')]
             if not template_files:
-                QMessageBox.critical(self, "Error", "No template files found in the templates folder!")
+                QMessageBox.critical(self, "Error", f"No template files found in the {source} folder!")
                 return
-            # Step 2: Show popup for user to select a template
-            template_file, ok = QInputDialog.getItem(self, "Select Template", "Choose a template:", template_files, 0, False)
+                
+            # Step 3: Show popup for user to select a template
+            template_file, ok = QInputDialog.getItem(
+                self,
+                "Select Template",
+                f"Choose a template from {source}:",
+                template_files,
+                0,
+                False
+            )
+            
             if not ok or not template_file:
                 return
+                
             template_path = os.path.join(templates_dir, template_file)
             if not os.path.exists(template_path):
                 QMessageBox.critical(self, "Error", "Template file not found!")
                 return
-            doc = Document(template_path)
-            # Step 3: Get meal options and current selections
+                
+            # Step 4: Get meal options and current selections
             breakfast_options = self.get_breakfast_combinations()
             lunch_options = self.get_lunch_combinations()
             dinner_options = self.get_dinner_items()
-            # Step 4: Create replacements dictionary with current selections
+            
+            # Step 5: Create replacements dictionary with current selections
             replacements = {}
             for row in range(self.table.rowCount()):
                 day_num = row + 1
@@ -1562,7 +1595,11 @@ class MealPlanner(QMainWindow):
                 replacements[breakfast_key] = (breakfast_options, breakfast_selected)
                 replacements[lunch_key] = (lunch_options, lunch_selected)
                 replacements[dinner_key] = (dinner_options, dinner_selected)
-            # Step 5: Process shapes in the document
+                
+            # Step 6: Process the template
+            doc = Document(template_path)
+            
+            # Process shapes in the document
             for shape in doc.part.package.parts:
                 if hasattr(shape, '_element') and hasattr(shape._element, 'txbx'):
                     try:
@@ -1579,6 +1616,7 @@ class MealPlanner(QMainWindow):
                     except Exception as shape_error:
                         print(f"Error processing shape: {shape_error}")
                         continue
+                        
             # Alternative approach using word._element
             body = doc._element.body
             for shape in body.findall('.//w:txbxContent', {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}):
@@ -1593,16 +1631,19 @@ class MealPlanner(QMainWindow):
                                 paragraph.remove(child)
                             dropdown = create_dropdown_element(options, selected)
                             paragraph.append(dropdown)
-            # Step 6: Save the document
+                            
+            # Step 7: Save the document
             save_path, _ = QFileDialog.getSaveFileName(
                 self,
                 "Save File",
                 "",
                 "Word Files (*.docx)"
             )
+            
             if save_path:
                 doc.save(save_path)
                 QMessageBox.information(self, "Success", "Meal plan saved with template successfully!")
+                
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save with template: {str(e)}")
             import traceback
