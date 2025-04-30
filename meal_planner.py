@@ -1371,41 +1371,162 @@ class MealPlanner(QMainWindow):
         return conditions;
     def save_to_gdoc(self):
         try:
-            service = self.get_gdocs_service()
-            title = "Generated Meal Plan"
+            # SECTION: Authentication and Document Creation
+            print("SECTION: Authentication and Document Creation")
+            SCOPES = ['https://www.googleapis.com/auth/documents', 'https://www.googleapis.com/auth/drive.file']
+            if not os.path.exists("google_doc_credential.json"):
+                raise FileNotFoundError("Google Docs credentials file 'google_doc_credential.json' not found.")
+
+            from google_auth_oauthlib.flow import InstalledAppFlow
+            from googleapiclient.discovery import build
+            flow = InstalledAppFlow.from_client_secrets_file("google_doc_credential.json", SCOPES)
+            creds = flow.run_local_server(port=0)
+            service = build('docs', 'v1', credentials=creds)
+
+            title = "خطة الوجبات الأسبوعية"
             doc = service.documents().create(body={"title": title}).execute()
             doc_id = doc['documentId']
-
-            # Basic content
+            print(f"Created document with ID: {doc_id}")
+            print("SECTION: INSERT TABLE ")
+            table_rows  = self.table.rowCount() + 1
+            table_columns = 4
+            table_start_index = 1
             requests = []
             requests.append({
-                'insertText': {
-                    'location': {'index': 1},
-                    'text': f"Health Conditions: {', '.join(self.get_health_conditions_text())}\n\n"
+                'insertTable':{
+                    'rows':table_rows,
+                    'columns':table_columns,
+                    'location':{'index':table_start_index}
                 }
             })
-
-            for row_idx in range(self.table.rowCount()):
-                day = self.table.item(row_idx, 0).text()
-                breakfast = self.table.cellWidget(row_idx, 1).currentText()
-                lunch = self.table.cellWidget(row_idx, 2).currentText()
-                dinner = self.table.cellWidget(row_idx, 3).currentText()
-
-                for label, options, selected in [("الإفطار", self.get_breakfast_combinations(), breakfast),
-                                             ("الغداء", self.get_lunch_combinations(), lunch),
-                                             ("العشاء", self.get_dinner_items(), dinner)]:
-                    requests.append({
-                        "insertText": {
-                            "location": {"index": 1},
-                            "text": f"{day} - {label}: {selected}\n"
+            service.documents().batchUpdate(documentId = doc_id,body={'requests':requests}).execute()
+            print("Table printed successfully")
+            print("SECTION FETCH CELL INDICES")
+            doc_content = service.documents().get(documentId=doc_id).execute()
+            cell_indices = {}
+            for element in doc_content.get('body',{}).get('content',[]):
+                if 'table' in element:
+                    table = element['table']
+                    table_start = element['startIndex']
+                    print(f"Table found at index: {table_start}")
+                    for r, row in enumerate(table.get('tableRows',[])):
+                        for c, cell in enumerate(row.get('tableCells',[])):
+                            if 'content' in cell and cell['content']:
+                                para = cell['content'][0]
+                                idx = para.get('startIndex')
+                                if idx is not None:
+                                    cell_indices[(r,c)] = idx
+                                    print(f"  Cell ({r}, {c}) → startIndex={idx}")
+                    break;
+            print("Done fetching cell indices")
+            ## SECTION: Insert Headers
+            print("SECTION: INSERT HEADERS")
+            headers = ["اليوم", "الإفطار", "الغداء", "العشاء"]
+            cols_ordered = sorted(range(len(headers)),
+                                  key = lambda c: cell_indices[(0,c)],
+                                  reverse = True)
+            header_requests = []
+            for col in cols_ordered:
+                title = headers[col]
+                idx = cell_indices[(0,col)]
+                print(f"-> inserting {title!r} at index {idx}")
+                header_requests.append({
+                    'insertText':{
+                        'location':{'index':idx},
+                        'text':title
+                    }
+                })
+                # style it bold
+                header_requests.append({
+                    'updateTextStyle':{
+                        'range':{'startIndex':idx,'endIndex':idx + len(title)},
+                        'textStyle':{'bold':True},
+                        'fields':'bold'
+                    }
+                })
+                # center align
+                header_requests.append({
+                    'updateParagraphStyle':{
+                        'range':{'startIndex':idx,'endIndex':idx + len(title)},
+                        'paragraphStyle': {'alignment': 'CENTER'},
+                        'fields':'alignment'
+                    }
+                })
+            service.documents().batchUpdate(
+                documentId = doc_id,
+                body = {'requests':header_requests}
+            ).execute()
+            # NEW BLOCK: re-fetch cell_indices after headers --
+            print("SECTION: REFERESH CELL INDICIES")
+            doc_content = service.documents().get(documentId = doc_id).execute()
+            cell_indices = {}
+            for element in doc_content.get('body',{}).get('content',[]):
+                if 'table' in element:
+                    for r, row in enumerate(element['table']['tableRows']):
+                        for c, cell in enumerate(row['tableCells']):
+                            if 'content' in cell and cell['content']:
+                                para = cell['content'][0]
+                                idx = para.get('startIndex')
+                                if idx is not None:
+                                    cell_indices[(r,c)] = idx
+                    break
+            print("Refreshed cell indices:",cell_indices)
+            # ── END NEW BLOCK ──
+             # Now build your data_requests exactly as before, using this fresh `cell_indices`
+            ## all good so far now the debugging will be in insert cells
+            # SECTION INSERT 14 DAY ROW DATA
+            print("SECTION: INSERT ROW DATA")
+            days_ar = ["السبت", "الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة"]
+            day_list = days_ar * 2
+            data_requests = []
+            for r in range(14):
+                row_vals = [
+                    day_list[r],
+                    self.table.cellWidget(r,1).currentText(),
+                    self.table.cellWidget(r, 2).currentText(),
+                    self.table.cellWidget(r, 3).currentText()
+                ]
+                for c, text in enumerate(row_vals):
+                    idx = cell_indices[(r+1,c)]
+                    payload = text + "\n"
+                    # insert text+newline
+                    data_requests.append({
+                        'insertText':{
+                            'location': {'index':idx},
+                            'text':payload
                         }
                     })
-
-            service.documents().batchUpdate(documentId=doc_id, body={"requests": requests}).execute()
-            QMessageBox.information(self, "Success", f"Google Doc created: https://docs.google.com/document/d/{doc_id}")
-
+                    # Style the text part (not new line)
+                    data_requests.append({
+                        'updateTextStyle':{
+                            'range':{'startIndex':idx,'endIndex':idx + len(text)},
+                            'textStyle':{'fontSize':{'magnitude': 11,'unit':'PT'}},
+                            'fields':'fontSize'
+                        }
+                    })
+                    ## 3) align the paragraph
+                    # Right-align the paragraph
+                    data_requests.append({
+                        'updateParagraphStyle':{
+                            'range':{'startIndex':idx,'endIndex':idx + len(payload)},
+                            'paragraphStyle':{'alignment':'END'},
+                            'fields':'alignment'
+                        }
+                    })
+            data_requests.sort(key=lambda r:(
+                r.get('insertText',{}).get('location',{}).get('index',
+                r.get('updateTextStyle',{}).get('range',{}).get('startIndex',0))
+            ),reverse=True)
+            service.documents().batchUpdate(
+                documentId = doc_id,
+                body={'requests':data_requests}
+            ).execute()
+            print("14 day data (with newline) inserted")
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to create Google Doc: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to save to Google Docs: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+
 
     def save_to_template_word(self):
         try:
