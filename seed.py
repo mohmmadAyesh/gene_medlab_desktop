@@ -161,4 +161,4 @@ def seed_conditions_and_rules():
     session.close()
 if __name__ == '__main__':
     seed_meal_items()
-
+    seed_conditions_and_rules()
