@@ -1049,10 +1049,10 @@ class MealPlanner(QMainWindow):
             )
             if not file_name:
                 return
-    
+
             # 1) Figure out which names to exclude
             excluded = set(self.get_excluded_items())
-    
+
             # 2) Build pools of names using ORM attributes
             def pool(time, grp):
                 return [
@@ -1061,17 +1061,17 @@ class MealPlanner(QMainWindow):
                        and m.group == grp
                        and m.name not in excluded
                 ]
-    
+
             bf1 = pool("Breakfast", 1)
             bf2 = pool("Breakfast", 2)
             ln1 = pool("Lunch",     1)
             ln2 = pool("Lunch",     2)
             dn  = pool("Dinner",    1)
-    
+
             breakfast_combinations = [f"{a} + {b}" for a in bf1 for b in bf2]
             lunch_combinations     = [f"{a} + {b}" for a in ln1 for b in ln2]
             dinner_items           = dn
-    
+
             # 3) Create the document
             doc = Document()
             conditions = []
@@ -1082,7 +1082,7 @@ class MealPlanner(QMainWindow):
             if 3 in self.health_conditions:
                 conditions.append("Kidney Disease")
             doc.add_paragraph(f"Health Conditions: {', '.join(conditions)}")
-    
+
             # 4) Build a 1+14 row table
             table = doc.add_table(rows=1, cols=4)
             table.style = 'Table Grid'
@@ -1090,7 +1090,7 @@ class MealPlanner(QMainWindow):
             for i, header in enumerate(["اليوم", "الإفطار", "الغداء", "العشاء"]):
                 hdr_cells[i].text = header
                 hdr_cells[i].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    
+
             # helper to insert a Word dropdown in a cell
             def create_dropdown(cell, options, selected):
                 try:
@@ -1104,7 +1104,7 @@ class MealPlanner(QMainWindow):
                         ddl.append(li)
                     sdtPr.append(ddl)
                     sdt.append(sdtPr)
-    
+
                     content = OxmlElement('w:sdtContent')
                     p = OxmlElement('w:p')
                     r = OxmlElement('w:r')
@@ -1114,12 +1114,12 @@ class MealPlanner(QMainWindow):
                     p.append(r)
                     content.append(p)
                     sdt.append(content)
-    
+
                     cell._element.clear_content()
                     cell._element.append(sdt)
                 except Exception:
                     cell.text = selected or (options[0] if options else "")
-    
+
             # 5) Fill in each of the 14 rows
             for row_idx in range(self.table.rowCount()):
                 cells = table.add_row().cells
@@ -1127,17 +1127,17 @@ class MealPlanner(QMainWindow):
                 day = self.table.item(row_idx, 0).text()
                 cells[0].text = day
                 cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    
+
                 # Grab what the user has currently selected in the UI table
                 bf_sel = self.table.cellWidget(row_idx, 1).currentText()
                 ln_sel = self.table.cellWidget(row_idx, 2).currentText()
                 dn_sel = self.table.cellWidget(row_idx, 3).currentText()
-    
+
                 # Insert dropdowns
                 create_dropdown(cells[1], breakfast_combinations, bf_sel)
                 create_dropdown(cells[2], lunch_combinations,     ln_sel)
                 create_dropdown(cells[3], dinner_items,           dn_sel)
-    
+
             # 6) Save
             doc.save(file_name)
             QMessageBox.information(self, "Success", "Meal plan saved successfully!")
@@ -1241,23 +1241,23 @@ class MealPlanner(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save PDF: {str(e)}")
     def get_breakfast_combinations(self):
-        excluded_items  = self.get_excluded_items();
-        group1 = [item["name"] for item in self.items
-                  if item["eat_time"] == "Breakfast" and item["group"] == 1 and item["name"] not in excluded_items]
-        group2 = [item["name"] for item in self.items
-                  if item["eat_time"] == "Breakfast" and item["group"] == 2 and item["name"] not in excluded_items]
-        return [f"{g1} + {g2}" for g1 in group1 for g2 in group2]
+        excluded  = set(self.get_excluded_items())
+        group1 = [m.name for m in self.items
+                  if m.eat_time  == "Breakfast" and m.group == 1 and m.name not in excluded]
+        group2 = [m.name for m in self.items
+                  if m.eat_time  == "Breakfast" and m.group == 2 and m.name not in excluded]
+        return [f"{a} + {b}" for a in group1 for b in group2]
     def get_lunch_combinations(self):
-        excluded_items = self.get_excluded_items()
-        group1 = [item["name"] for item in self.items
-                  if item["eat_time"] == "Lunch" and item["group"] == 1 and item["name"] not in excluded_items]
-        group2 = [item["name"] for item in self.items
-                  if item["eat_time"] == "Lunch" and item["group"] == 2 and item["name"] not in excluded_items]
-        return [f"{g1} + {g2}" for g1 in group1 for g2 in group2]
+        excluded = set(self.get_excluded_items())
+        group1 = [m.name for m in self.items
+                  if m.eat_time  == "Lunch" and m.group == 1 and m.name not in excluded]
+        group2 = [m.name for m in self.items
+                  if m.eat_time  == "Lunch" and m.group == 2 and m.name not in excluded]
+        return [f"{a} + {b}" for a in group1 for b in group2]
     def get_dinner_items(self):
-        excluded_items = self.get_excluded_items()
-        return [item["name"] for item in self.items
-                if item["eat_time"] == "Dinner" and item["group"] == 1 and item["name"] not in excluded_items]
+        excluded = set(self.get_excluded_items())
+        return [m.name for m in self.items
+                if m.eat_time == "Dinner" and m.group == 1 and m.name not in excluded]
         
     def get_gdocs_service(self):
         SCOPES = ['https://www.googleapis.com/auth/documents', 'https://www.googleapis.com/auth/drive.file']
