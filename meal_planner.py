@@ -916,128 +916,39 @@ class MealPlanner(QMainWindow):
                 return
             
             # Get excluded items
-            excluded_items = self.get_excluded_items()
-            
-            # Get items for each category and meal time
-            breakfast_group1_items = [item for item in self.items 
-                                    if item["eat_time"] == "Breakfast" 
-                                    and item["group"] == 1
-                                    and item["name"] not in excluded_items]
-            breakfast_group2_items = [item for item in self.items 
-                                    if item["eat_time"] == "Breakfast" 
-                                    and item["group"] == 2
-                                    and item["name"] not in excluded_items]
-            lunch_group1_items = [item for item in self.items 
-                                if item["eat_time"] == "Lunch" 
-                                and item["group"] == 1
-                                and item["name"] not in excluded_items]
-            lunch_group2_items = [item for item in self.items 
-                                if item["eat_time"] == "Lunch" 
-                                and item["group"] == 2
-                                and item["name"] not in excluded_items]
-            dinner_items = [item for item in self.items 
-                          if item["eat_time"] == "Dinner" 
-                          and item["group"] == 1
-                          and item["name"] not in excluded_items]
-            
-            # Track previous day's meals
-            prev_meals = {
-                'breakfast_g1': [],
-                'breakfast_g2': [],
-                'lunch_g1': [],
-                'lunch_g2': [],
-                'dinner': []
-            }
-            
-            # Generate meal plan
+            excluded = set(self.get_excluded_items())
+            eat = lambda time, grp: [
+                m for m in self.items
+                if m.eat_time == time and m.group == grp and m.name not in excluded
+            ]
+            bg1, bg2 = eat("Breakfast",1), eat("Breakfast",2)
+            lg1, lg2 = eat("Lunch",    1), eat("Lunch",    2)
+            dn  = eat("Dinner",    1)
+            prev = {"b1":[],"b2":[],"l1":[],"l2":[],"d":[]}
             for row in range(self.table.rowCount()):
-                # Breakfast
-                # Get available items excluding items from previous day
-                available_breakfast_group1 = [item for item in breakfast_group1_items 
-                                            if item not in prev_meals['breakfast_g1']]
-                available_breakfast_group2 = [item for item in breakfast_group2_items 
-                                            if item not in prev_meals['breakfast_g2']]
-                
-                # If no available items, use all items
-                if not available_breakfast_group1:
-                    available_breakfast_group1 = breakfast_group1_items
-                if not available_breakfast_group2:
-                    available_breakfast_group2 = breakfast_group2_items
-                
-                # Select random items with weighted probability
-                # Give higher probability to items that haven't been used recently
-                # Use a more aggressive weighting to prevent patterns
-                weights_group1 = [1.0 if item not in prev_meals['breakfast_g1'] else 0.01 for item in available_breakfast_group1]
-                weights_group2 = [1.0 if item not in prev_meals['breakfast_g2'] else 0.01 for item in available_breakfast_group2]
-                
-                # Add some randomness to the weights to prevent patterns
-                weights_group1 = [w * random.uniform(0.8, 1.2) for w in weights_group1]
-                weights_group2 = [w * random.uniform(0.8, 1.2) for w in weights_group2]
-                
-                # Normalize weights
-                sum_weights1 = sum(weights_group1)
-                sum_weights2 = sum(weights_group2)
-                weights_group1 = [w/sum_weights1 for w in weights_group1]
-                weights_group2 = [w/sum_weights2 for w in weights_group2]
-                
-                # Select items with weighted probability
-                breakfast_group1 = random.choices(available_breakfast_group1, weights=weights_group1, k=1)[0]
-                breakfast_group2 = random.choices(available_breakfast_group2, weights=weights_group2, k=1)[0]
-                
-                # Update previous meals tracking (keep only last day)
-                prev_meals['breakfast_g1'] = [breakfast_group1]
-                prev_meals['breakfast_g2'] = [breakfast_group2]
-                
-                # Lunch
-                # Get available items excluding items from previous day
-                available_lunch_group1 = [item for item in lunch_group1_items 
-                                        if item not in prev_meals['lunch_g1']]
-                available_lunch_group2 = [item for item in lunch_group2_items 
-                                        if item not in prev_meals['lunch_g2']]
-                
-                # If no available items, use all items
-                if not available_lunch_group1:
-                    available_lunch_group1 = lunch_group1_items
-                if not available_lunch_group2:
-                    available_lunch_group2 = lunch_group2_items
-                
-                # Select random items
-                lunch_group1 = random.choice(available_lunch_group1)
-                lunch_group2 = random.choice(available_lunch_group2)
-                
-                # Update previous meals tracking (keep only last day)
-                prev_meals['lunch_g1'] = [lunch_group1]
-                prev_meals['lunch_g2'] = [lunch_group2]
-                
-                # Dinner
-                # Get available items excluding items from previous day
-                available_dinner = [item for item in dinner_items 
-                                  if item not in prev_meals['dinner']]
-                
-                # If no available items, use all items
-                if not available_dinner:
-                    available_dinner = dinner_items
-                
-                # Select random item
-                dinner = random.choice(available_dinner)
-                
-                # Update previous meals tracking (keep only last day)
-                prev_meals['dinner'] = [dinner]
-                
-                # Create combinations
-                breakfast_combo = f"{breakfast_group1['name']} + {breakfast_group2['name']}"
-                lunch_combo = f"{lunch_group1['name']} + {lunch_group2['name']}"
-                
-                # Update table
-                self.table.cellWidget(row, 1).setCurrentText(breakfast_combo)
-                self.table.cellWidget(row, 2).setCurrentText(lunch_combo)
-                self.table.cellWidget(row, 3).setCurrentText(dinner['name'])
-            
-            # Enable both save buttons after successful generation
-            self.save_excel_button.setEnabled(True)
-            self.save_word_button.setEnabled(True)
-            self.save_pdf_button.setEnabled(True)
-            
+                 ag1 = [m for m in bg1 if m not in prev["b1"]] or bg1
+                 ag2 = [m for m in bg2 if m not in prev["b2"]] or bg2
+                 def pick(av, key):
+                    weights = [(1.0 if m not in prev[key] else 0.01)*random.uniform(0.8,1.2) for m in av]
+                    total = sum(weights)
+                    return random.choices(av, weights=[w/total for w in weights], k=1)[0]
+                 b1 = pick(ag1, "b1")
+                 b2 = pick(ag2, "b2")
+                 prev["b1"], prev["b2"] = [b1],[b2]
+                 al1 = [m for m in lg1 if m not in prev["l1"]] or lg1
+                 al2 = [m for m in lg2 if m not in prev["l2"]] or lg2
+                 l1 = random.choice(al1)
+                 l2 = random.choice(al2)
+                 prev["l1"], prev["l2"] = [l1],[l2]
+                 # dinner
+                 ad = [m for m in dn if m not in prev["d"]] or dn
+                 d = random.choice(ad)
+                 prev["d"] =[d]
+                 self.table.cellWidget(row,1).setCurrentText(f"{b1.name} + {b2.name}")
+                 self.table.cellWidget(row,2).setCurrentText(f"{l1.name} + {l2.name}")
+                 self.table.cellWidget(row,3).setCurrentText(d.name)
+            for btn in (self.save_excel_button, self.save_word_button, self.save_pdf_button):
+                btn.setEnabled(True)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to generate meal plan: {str(e)}")
 
