@@ -972,98 +972,107 @@ class MealPlanner(QMainWindow):
             headers = ["اليوم", "الإفطار", "الغداء", "العشاء"]
             for col, header in enumerate(headers, 1):
                 sheet.cell(row=3, column=col).value = header
-            excluded_items = self.get_excluded_items()
-            breakfast_group1_items = [item["name"] for item in self.items 
-                                if item["eat_time"] == "Breakfast" 
-                                and item["group"] == 1
-                                and item["name"] not in excluded_items]
-            breakfast_group2_items = [item["name"] for item in self.items 
-                                if item["eat_time"] == "Breakfast" 
-                                and item["group"] == 2
-                                and item["name"] not in excluded_items]
-            breakfast_combinations = [f"{g1} + {g2}" for g1 in breakfast_group1_items 
-                                for g2 in breakfast_group2_items]
-        
-        # Lunch combinations
-            lunch_group1_items = [item["name"] for item in self.items 
-                            if item["eat_time"] == "Lunch" 
-                            and item["group"] == 1
-                            and item["name"] not in excluded_items]
-            lunch_group2_items = [item["name"] for item in self.items 
-                            if item["eat_time"] == "Lunch" 
-                            and item["group"] == 2
-                            and item["name"] not in excluded_items]
-            lunch_combinations = [f"{g1} + {g2}" for g1 in lunch_group1_items 
-                            for g2 in lunch_group2_items]
-        
-        # Dinner items
-            dinner_items = [item["name"] for item in self.items 
-                      if item["eat_time"] == "Dinner" 
-                      and item["group"] == 1
-                      and item["name"] not in excluded_items]   
-            for i, combo in enumerate(breakfast_combinations, 1):
+            excluded = set(self.get_excluded_items())
+            def pool(time, grp):
+                return [
+                m.name for m in self.items
+                if m.eat_time == time
+                   and m.group == grp
+                   and m.name not in excluded
+                ]
+
+            bf1 = pool("Breakfast", 1)
+            bf2 = pool("Breakfast", 2)
+            ln1 = pool("Lunch",     1)
+            ln2 = pool("Lunch",     2)
+            dn  = pool("Dinner",    1)
+
+        # 4) Write the hidden dropdown sources into F/H columns
+        #    (same as before, but variable names updated)
+            breakfast_combinations = [f"{a} + {b}" for a in bf1 for b in bf2]
+            lunch_combinations     = [f"{a} + {b}" for a in ln1 for b in ln2]
+
+        # write them into columns F, G, H and capture ranges
+            for i, combo in enumerate(breakfast_combinations, start=1):
                 sheet.cell(row=i, column=6).value = combo
             breakfast_range = f"$F$1:$F${len(breakfast_combinations)}"
-            for i, combo in enumerate(lunch_combinations, 1):
+
+            for i, combo in enumerate(lunch_combinations, start=1):
                 sheet.cell(row=i, column=7).value = combo
             lunch_range = f"$G$1:$G${len(lunch_combinations)}"
-            for i, item in enumerate(dinner_items, 1):
+
+            for i, item in enumerate(dn, start=1):
                 sheet.cell(row=i, column=8).value = item
-            dinner_range = f"$H$1:$H${len(dinner_items)}"
-            for row in range(self.table.rowCount()):
-               sheet.cell(row=row+4, column=1).value = self.table.item(row, 0).text()
-               breakfast_combo = self.table.cellWidget(row, 1)
-               lunch_combo = self.table.cellWidget(row, 2)
-               dinner_combo = self.table.cellWidget(row, 3)
-               sheet.cell(row=row+4, column=2).value = breakfast_combo.currentText()
-               sheet.cell(row=row+4, column=3).value = lunch_combo.currentText()
-               sheet.cell(row=row+4, column=4).value = dinner_combo.currentText()
-               breakfast_dv = DataValidation(type="list", formula1=f"={breakfast_range}", allow_blank=True)
-               lunch_dv = DataValidation(type="list", formula1=f"={lunch_range}", allow_blank=True)
-               dinner_dv = DataValidation(type="list", formula1=f"={dinner_range}", allow_blank=True)
-               sheet.add_data_validation(breakfast_dv)
-               sheet.add_data_validation(lunch_dv)
-               sheet.add_data_validation(dinner_dv)
-               breakfast_dv.add(sheet.cell(row=row+4, column=2))
-               lunch_dv.add(sheet.cell(row=row+4, column=3))
-               dinner_dv.add(sheet.cell(row=row+4, column=4))
+            dinner_range = f"$H$1:$H${len(dn)}"
+
+        # 5) Now write your 7-day plan (rows 4→10) and attach DataValidation
+            for r in range(self.table.rowCount()):
+                excel_row = r + 4
+            # Day name
+                sheet.cell(row=excel_row, column=1).value = self.table.item(r, 0).text()
+
+            # Breakfast, lunch, dinner texts
+                bf = self.table.cellWidget(r, 1).currentText()
+                ln = self.table.cellWidget(r, 2).currentText()
+                dn = self.table.cellWidget(r, 3).currentText()
+
+                sheet.cell(row=excel_row, column=2).value = bf
+                sheet.cell(row=excel_row, column=3).value = ln
+                sheet.cell(row=excel_row, column=4).value = dn
+
+                # Attach dropdown validations
+                dv_bf = DataValidation(type="list", formula1=f"={breakfast_range}", allow_blank=True)
+                dv_ln = DataValidation(type="list", formula1=f"={lunch_range}",     allow_blank=True)
+                dv_dn = DataValidation(type="list", formula1=f"={dinner_range}",    allow_blank=True)
+
+                sheet.add_data_validation(dv_bf)
+                sheet.add_data_validation(dv_ln)
+                sheet.add_data_validation(dv_dn)
+
+                dv_bf.add(sheet.cell(row=excel_row, column=2))
+                dv_ln.add(sheet.cell(row=excel_row, column=3))
+                dv_dn.add(sheet.cell(row=excel_row, column=4))
+
+        # 6) Hide the helper columns
             sheet.column_dimensions['F'].hidden = True
             sheet.column_dimensions['G'].hidden = True
             sheet.column_dimensions['H'].hidden = True
+
             workbook.save(file_name)
             QMessageBox.information(self, "Success", "Meal plan saved successfully!")
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
     def save_to_word(self):
         try:
-            file_name, _ = QFileDialog.getSaveFileName(self, "Save Word File", "", "Word Files (*.docx)")
+            file_name, _ = QFileDialog.getSaveFileName(
+                self, "Save Word File", "", "Word Files (*.docx)"
+            )
             if not file_name:
                 return
-            excluded_items = self.get_excluded_items()
-            breakfast_group1_items = [item["name"] for item in self.items 
-                                if item["eat_time"] == "Breakfast" 
-                                and item["group"] == 1
-                                and item["name"] not in excluded_items]
-            breakfast_group2_items = [item["name"] for item in self.items 
-                                if item["eat_time"] == "Breakfast" 
-                                and item["group"] == 2  
-                                and item["name"] not in excluded_items]
-            breakfast_combinations = [f"{g1} + {g2}" for g1 in breakfast_group1_items 
-                                for g2 in breakfast_group2_items]
-            lunch_group1_items = [item["name"] for item in self.items 
-                                if item["eat_time"] == "Lunch" 
-                                and item["group"] == 1 
-                                and item["name"] not in excluded_items]
-            lunch_group2_items = [item["name"] for item in self.items 
-                                if item["eat_time"] == "Lunch" 
-                                and item["group"] == 2 
-                                and item["name"] not in excluded_items]
-            lunch_combinations = [f"{g1} + {g2}" for g1 in lunch_group1_items
-                                for g2 in lunch_group2_items]
-            dinner_items = [item["name"] for item in self.items 
-                            if item["eat_time"] == "Dinner" 
-                            and item["group"] == 1 
-                            and item["name"] not in excluded_items]
+    
+            # 1) Figure out which names to exclude
+            excluded = set(self.get_excluded_items())
+    
+            # 2) Build pools of names using ORM attributes
+            def pool(time, grp):
+                return [
+                    m.name for m in self.items
+                    if m.eat_time == time
+                       and m.group == grp
+                       and m.name not in excluded
+                ]
+    
+            bf1 = pool("Breakfast", 1)
+            bf2 = pool("Breakfast", 2)
+            ln1 = pool("Lunch",     1)
+            ln2 = pool("Lunch",     2)
+            dn  = pool("Dinner",    1)
+    
+            breakfast_combinations = [f"{a} + {b}" for a in bf1 for b in bf2]
+            lunch_combinations     = [f"{a} + {b}" for a in ln1 for b in ln2]
+            dinner_items           = dn
+    
+            # 3) Create the document
             doc = Document()
             conditions = []
             if 1 in self.health_conditions:
@@ -1073,53 +1082,67 @@ class MealPlanner(QMainWindow):
             if 3 in self.health_conditions:
                 conditions.append("Kidney Disease")
             doc.add_paragraph(f"Health Conditions: {', '.join(conditions)}")
+    
+            # 4) Build a 1+14 row table
             table = doc.add_table(rows=1, cols=4)
             table.style = 'Table Grid'
             hdr_cells = table.rows[0].cells
-            headers = ["اليوم", "الإفطار", "الغداء", "العشاء"]
-            for i, header in enumerate(headers):
+            for i, header in enumerate(["اليوم", "الإفطار", "الغداء", "العشاء"]):
                 hdr_cells[i].text = header
                 hdr_cells[i].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    
+            # helper to insert a Word dropdown in a cell
+            def create_dropdown(cell, options, selected):
+                try:
+                    sdt = OxmlElement('w:sdt')
+                    sdtPr = OxmlElement('w:sdtPr')
+                    ddl = OxmlElement('w:dropDownList')
+                    for opt in options:
+                        li = OxmlElement('w:listItem')
+                        li.set(qn('w:displayText'), opt)
+                        li.set(qn('w:value'), opt)
+                        ddl.append(li)
+                    sdtPr.append(ddl)
+                    sdt.append(sdtPr)
+    
+                    content = OxmlElement('w:sdtContent')
+                    p = OxmlElement('w:p')
+                    r = OxmlElement('w:r')
+                    t = OxmlElement('w:t')
+                    t.text = selected or (options[0] if options else "")
+                    r.append(t)
+                    p.append(r)
+                    content.append(p)
+                    sdt.append(content)
+    
+                    cell._element.clear_content()
+                    cell._element.append(sdt)
+                except Exception:
+                    cell.text = selected or (options[0] if options else "")
+    
+            # 5) Fill in each of the 14 rows
             for row_idx in range(self.table.rowCount()):
-                row_cells = table.add_row().cells
+                cells = table.add_row().cells
+                # Day name
                 day = self.table.item(row_idx, 0).text()
-                row_cells[0].text = day
-                row_cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
-                def create_dropdown(cell, options, selected=None):
-                    try:    
-                        sdt = OxmlElement('w:sdt')
-                        sdtPr = OxmlElement('w:sdtPr')
-                        ddl = OxmlElement('w:dropDownList')
-                        for option in options:
-                            li  = OxmlElement('w:listItem')
-                            li.set(qn('w:displayText'),option)
-                            li.set(qn('w:value'),option)
-                            ddl.append(li)
-                        sdtPr.append(ddl)
-                        sdt.append(sdtPr)
-                        sdtContent = OxmlElement('w:sdtContent')
-                        p = OxmlElement('w:p')
-                        r = OxmlElement('w:r')
-                        t = OxmlElement('w:t')
-                        t.text = selected or (options[0] if options else '')
-                        r.append(t)
-                        p.append(r)
-                        sdtContent.append(p)
-                        sdt.append(sdtContent)
-                        cell._element.clear_content()
-                        cell._element.append(sdt)
-                    except Exception as e:
-                        cell.text = selected or (options[0] if options else '')
-                breakfast_combo = self.table.cellWidget(row_idx, 1).currentText()
-                create_dropdown(row_cells[1], breakfast_combinations, breakfast_combo)
-                lunch_combo = self.table.cellWidget(row_idx, 2).currentText()
-                create_dropdown(row_cells[2], lunch_combinations, lunch_combo)
-                dinner_combo = self.table.cellWidget(row_idx, 3).currentText()
-                create_dropdown(row_cells[3], dinner_items, dinner_combo)
+                cells[0].text = day
+                cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    
+                # Grab what the user has currently selected in the UI table
+                bf_sel = self.table.cellWidget(row_idx, 1).currentText()
+                ln_sel = self.table.cellWidget(row_idx, 2).currentText()
+                dn_sel = self.table.cellWidget(row_idx, 3).currentText()
+    
+                # Insert dropdowns
+                create_dropdown(cells[1], breakfast_combinations, bf_sel)
+                create_dropdown(cells[2], lunch_combinations,     ln_sel)
+                create_dropdown(cells[3], dinner_items,           dn_sel)
+    
+            # 6) Save
             doc.save(file_name)
-            QMessageBox.information(self, "Success", "Meal plan saved successfully!")               
+            QMessageBox.information(self, "Success", "Meal plan saved successfully!")
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to save document: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to save document: {e}")
     def save_to_pdf(self):
         try:
         # Get save file path
