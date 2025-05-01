@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                            QTableWidget, QTableWidgetItem, QMessageBox,
                            QGroupBox, QFileDialog, QScrollArea, QCheckBox,
                            QTabWidget, QComboBox, QHeaderView, QFormLayout,
-                           QLineEdit, QInputDialog)
+                           QLineEdit, QInputDialog, QButtonGroup, QRadioButton)
 from PySide6.QtCore import Qt
 import os
 import tempfile
@@ -35,6 +35,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from models import Base
 from models import MealItem,ExclusionRule,HealthCondition
+from sqlalchemy.exc import IntegrityError
 def create_element(name):
     return OxmlElement(name)
 def create_attribute(element,name,value):
@@ -463,6 +464,244 @@ class MealPlanner(QMainWindow):
         tabs.addTab(main_tab, "Meal Planner")
         tabs.addTab(health_tab, "Health Conditions")
         tabs.addTab(exclusion_tab, "Exclude Items")
+        
+        # Create and add preferences tab
+        preferences_tab = QWidget()
+        preferences_layout = QVBoxLayout(preferences_tab)
+        
+        # Add title/info section with modern styling
+        info_group = QGroupBox()
+        info_group.setStyleSheet("""
+            QGroupBox {
+                background-color: #ffffff;
+                border: 1px solid #e5e7eb;
+                border-radius: 16px;
+                padding: 20px;
+                margin-bottom: 20px;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            }
+        """)
+        info_layout = QHBoxLayout(info_group)
+        
+        name_label = QLabel("الاسم:")
+        name_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        name_input = QLineEdit()
+        name_input.setAlignment(Qt.AlignRight)
+        name_input.setPlaceholderText("ادخل الاسم")
+        name_input.setStyleSheet("""
+            QLineEdit {
+                padding: 12px;
+                border: 2px solid #e5e7eb;
+                border-radius: 12px;
+                font-size: 14px;
+                background-color: #f8fafc;
+            }
+            QLineEdit:focus {
+                border-color: #3b82f6;
+                background-color: white;
+            }
+        """)
+        
+        sample_label = QLabel("رقم العينة:")
+        sample_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        sample_input = QLineEdit()
+        sample_input.setAlignment(Qt.AlignRight)
+        sample_input.setPlaceholderText("ادخل رقم العينة")
+        sample_input.setStyleSheet("""
+            QLineEdit {
+                padding: 12px;
+                border: 2px solid #e5e7eb;
+                border-radius: 12px;
+                font-size: 14px;
+                background-color: #f8fafc;
+            }
+            QLineEdit:focus {
+                border-color: #3b82f6;
+                background-color: white;
+            }
+        """)
+        
+        info_layout.addWidget(sample_input)
+        info_layout.addWidget(sample_label)
+        info_layout.addWidget(name_input)
+        info_layout.addWidget(name_label)
+        
+        preferences_layout.addWidget(info_group)
+        
+        # Create scroll area for the form
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setSpacing(20)
+        
+        # Define rating options with emojis and colors
+        ratings = [
+            ("أحبه كثيراً", "☺️", "😊", "#22c55e"),    # Green
+            ("أحبه بشكل متوسط", "🙂", "😀", "#0ea5e9"), # Blue
+            ("أحبه قليلاً", "😐", "🙁", "#f59e0b"),      # Yellow
+            ("لا أحبه", "😕", "😞", "#ef4444")          # Red
+        ]
+        
+        # Add headers section with modern design
+        headers_widget = QWidget()
+        headers_layout = QHBoxLayout(headers_widget)
+        headers_layout.setContentsMargins(0, 0, 0, 0)
+        
+        ratings_widget = QWidget()
+        ratings_layout = QHBoxLayout(ratings_widget)
+        ratings_layout.setContentsMargins(0, 0, 0, 0)
+        ratings_layout.setSpacing(30)  # Increased spacing between ratings
+        
+        for rating_text, outlined, filled, color in ratings:
+            label = QLabel(f"{rating_text}\n{outlined}")
+            label.setStyleSheet(f"""
+                font-weight: bold;
+                color: {color};
+                font-size: 14px;
+                padding: 8px;
+                border-radius: 8px;
+                background-color: #f8fafc;
+            """)
+            label.setAlignment(Qt.AlignCenter)
+            ratings_layout.addWidget(label)
+        
+        headers_layout.addWidget(ratings_widget)
+        
+        scroll_layout.addWidget(headers_widget)
+        
+        # Group meals by eat_time with modern card design
+        meal_times = ["Breakfast", "Lunch", "Dinner"]
+        meal_headers = {
+            "Breakfast": "خيارات الفطور",
+            "Lunch": "خيارات الغداء",
+            "Dinner": "خيارات العشاء"
+        }
+        
+        for meal_time in meal_times:
+            # Add section header with modern styling
+            section_group = QGroupBox()
+            section_group.setStyleSheet("""
+                QGroupBox {
+                    background-color: white;
+                    border: 1px solid #e5e7eb;
+                    border-radius: 16px;
+                    padding: 20px;
+                    margin-top: 10px;
+                    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+                }
+            """)
+            section_layout = QVBoxLayout(section_group)
+            
+            section_label = QLabel(meal_headers[meal_time])
+            section_label.setStyleSheet("""
+                font-weight: bold;
+                color: #1e293b;
+                font-size: 16px;
+                padding: 12px;
+                border-bottom: 2px solid #e5e7eb;
+                margin-bottom: 10px;
+            """)
+            section_label.setAlignment(Qt.AlignRight)
+            section_layout.addWidget(section_label)
+            
+            # Get meals for this section
+            meals = [meal for meal in self.items if meal.eat_time == meal_time]
+            
+            for meal in meals:
+                row_widget = QWidget()
+                row_widget.setStyleSheet("""
+                    QWidget {
+                        background-color: #f8fafc;
+                        border-radius: 12px;
+                        padding: 8px;
+                    }
+                    QWidget:hover {
+                        background-color: #f1f5f9;
+                    }
+                """)
+                row_layout = QHBoxLayout(row_widget)
+                row_layout.setContentsMargins(15, 8, 15, 8)
+                
+                # Create radio button group with emoji states
+                button_group = QButtonGroup(row_widget)
+                button_widget = QWidget()
+                button_layout = QHBoxLayout(button_widget)
+                button_layout.setContentsMargins(0, 0, 0, 0)
+                button_layout.setSpacing(30)  # Increased spacing between buttons
+                
+                for i, (_, outlined, filled, color) in enumerate(ratings):
+                    radio = QRadioButton()
+                    radio.setStyleSheet(f"""
+                        QRadioButton {{
+                            font-size: 20px;
+                            color: {color};
+                            padding: 8px;
+                            border-radius: 8px;
+                        }}
+                        QRadioButton::indicator {{
+                            width: 0px;
+                            height: 0px;
+                        }}
+                        QRadioButton::checked {{
+                            background-color: {color}10;
+                        }}
+                    """)
+                    # Set the text to outlined emoji by default
+                    radio.setText(outlined)
+                    # When checked, change to filled emoji
+                    radio.toggled.connect(lambda checked, r=radio, o=outlined, f=filled: 
+                                        r.setText(f if checked else o))
+                    
+                    button_group.addButton(radio, i)
+                    button_layout.addWidget(radio)
+                
+                # Add meal name with modern styling
+                name_label = QLabel(meal.name)
+                name_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                name_label.setStyleSheet("""
+                    font-size: 14px;
+                    color: #1e293b;
+                    font-weight: 500;
+                    padding: 0 15px;
+                """)
+                
+                row_layout.addWidget(button_widget)
+                row_layout.addWidget(name_label)
+                
+                section_layout.addWidget(row_widget)
+            
+            scroll_layout.addWidget(section_group)
+        
+        scroll.setWidget(scroll_content)
+        scroll.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background-color: white;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: #f1f5f9;
+                width: 8px;
+                border-radius: 4px;
+                margin: 0;
+            }
+            QScrollBar::handle:vertical {
+                background: #94a3b8;
+                border-radius: 4px;
+                min-height: 30px;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+            }
+        """)
+        preferences_layout.addWidget(scroll)
+        
+        # Add to main tabs
+        tabs.addTab(preferences_tab, "Preferences")
         
         # Add tab widget to main layout
         layout.addWidget(tabs)
@@ -1800,14 +2039,7 @@ class MealPlanner(QMainWindow):
         self.initialize_excluded_foods_tables()
         self.diabetest_name_edit.clear()
 
-    # def delete_diabetes_exclusion(self, row):
-    #     reply = QMessageBox.question(self, 'Confirm Delete',
-    #                                'Are you sure you want to delete this excluded food?',
-    #                                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        
-    #     if reply == QMessageBox.Yes:
-    #         DIABETES_EXCLUDED_FOODS.pop(row)
-    #         self.initialize_excluded_foods_tables()
+    
 
     def add_kidney_exclusion(self):
         name = self.kidney_name_edit.text().strip()
@@ -1821,14 +2053,7 @@ class MealPlanner(QMainWindow):
         self.initialize_excluded_foods_tables()
         self.kidney_name_edit.clear()
 
-    # def delete_kidney_exclusion(self, row):
-    #     reply = QMessageBox.question(self, 'Confirm Delete',
-    #                                'Are you sure you want to delete this excluded food?',
-    #                                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        
-    #     if reply == QMessageBox.Yes:
-    #         KIDNEY_EXCLUDED_FOODS.pop(row)
-    #         self.initialize_excluded_foods_tables()
+    
 
 if __name__ == "__main__":
     from sqlalchemy.orm import scoped_session
