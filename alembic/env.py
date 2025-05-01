@@ -3,7 +3,8 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 from models import Base
-from alembic import context
+from sqlalchemy import text
+from alembic import context 
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -29,7 +30,10 @@ target_metadata = Base.metadata
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
 
-
+def include_object(object, name, type_, reflected, compare_to):
+    if type_ == "table" and name == "alembic_version":
+        return False
+    return True
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
 
@@ -44,10 +48,12 @@ def run_migrations_offline() -> None:
     """
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=url,
-        target_metadata=target_metadata,
-        literal_binds=True,
-        dialect_opts={"paramstyle": "named"},
+        url = url,
+        target_metadata = target_metadata,
+        literal_binds = True,
+        dialect_opts = {"paramstyle": "named"},
+        version_table_schema="public",
+        include_object = include_object,
     )
 
     with context.begin_transaction():
@@ -62,14 +68,18 @@ def run_migrations_online() -> None:
 
     """
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        config.get_section(config.config_ini_section),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
 
     with connectable.connect() as connection:
+        connection.execute(text("SET search_path TO public"))
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            version_table_schema="public",
+            include_object = include_object,
         )
 
         with context.begin_transaction():
