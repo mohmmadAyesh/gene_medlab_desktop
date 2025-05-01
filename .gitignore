@@ -1,3 +1,5 @@
 /meal_planner_web
 google_doc_credential.json
 pdf_to_word_converter.py
+_pycache_/*
+alembic/versions/*
