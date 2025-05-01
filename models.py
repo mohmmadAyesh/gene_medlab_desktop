@@ -22,16 +22,18 @@ class User(Base):
 
 class PatientProfile(Base):
     __tablename__ = 'patient_profiles'
-    patient_id = Column(Integer, ForeignKey('users.user_id'), primary_key=True)
+    id      = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('users.user_id'),
+                     nullable=False, unique=True)
     first_name = Column(String)
     last_name  = Column(String)
     dob        = Column(Date)
+
     user       = relationship("User", back_populates="patient")
     conditions = relationship("PatientCondition", back_populates="patient")
-    preferences= relationship("Preference", back_populates="patient")
-    exclusions = relationship("UserExclusion", back_populates="patient")
-    plans      = relationship("MealPlan", back_populates="patient")
-
+    preferences= relationship("Preference",      back_populates="patient")
+    exclusions = relationship("UserExclusion",   back_populates="patient")
+    plans      = relationship("MealPlan",        back_populates="patient")
 class HealthCondition(Base):
     __tablename__ = 'health_conditions'
     condition_id = Column(Integer, primary_key=True)
@@ -41,7 +43,7 @@ class HealthCondition(Base):
 
 class PatientCondition(Base):
     __tablename__ = 'patient_conditions'
-    patient_id   = Column(Integer, ForeignKey('patient_profiles.patient_id'), primary_key=True)
+    patient_id   = Column(Integer, ForeignKey('patient_profiles.id'), primary_key=True)
     condition_id = Column(Integer, ForeignKey('health_conditions.condition_id'), primary_key=True)
     patient      = relationship("PatientProfile", back_populates="conditions")
     condition    = relationship("HealthCondition", back_populates="patient_links")
@@ -69,9 +71,11 @@ class ExclusionRule(Base):
 class UserExclusion(Base):
     __tablename__ = 'user_exclusions'
     exclusion_id = Column(Integer, primary_key=True)
-    patient_id   = Column(Integer, ForeignKey('patient_profiles.patient_id'))
+    patient_id   = Column(Integer, ForeignKey('patient_profiles.id'),
+                            nullable=False)
     item_id      = Column(Integer, ForeignKey('meal_items.item_id'))
-    rule_id      = Column(Integer, ForeignKey('exclusion_rules.rule_id'), nullable=True)
+    rule_id      = Column(Integer, ForeignKey('exclusion_rules.rule_id'),
+                            nullable=True)
     patient      = relationship("PatientProfile", back_populates="exclusions")
     item         = relationship("MealItem", back_populates="user_ex")
     rule         = relationship("ExclusionRule", back_populates="overrides")
@@ -79,15 +83,16 @@ class UserExclusion(Base):
 class Preference(Base):
     __tablename__ = 'preferences'
     pref_id    = Column(Integer, primary_key=True)
-    patient_id = Column(Integer, ForeignKey('patient_profiles.patient_id'))
-    # add your extra pref columns here, e.g. calorie_target, allergies, etc.
+    patient_id = Column(Integer, ForeignKey('patient_profiles.id'),
+                            nullable=False)
+    meal_name  = Column(String, nullable=False)
+    rating     = Column(String, nullable=True)
     patient    = relationship("PatientProfile", back_populates="preferences")
-    meal_name = Column(String,nullable=False)
-    rating = Column(String,nullable=True)
 class MealPlan(Base):
     __tablename__ = 'meal_plans'
     plan_id      = Column(Integer, primary_key=True)
-    patient_id   = Column(Integer, ForeignKey('patient_profiles.patient_id'))
+    patient_id   = Column(Integer, ForeignKey('patient_profiles.id'),
+                            nullable=False)
     generated_at = Column(DateTime)
     entries      = relationship("MealPlanEntry", back_populates="plan")
     patient      = relationship("PatientProfile", back_populates="plans")

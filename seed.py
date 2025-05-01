@@ -203,7 +203,7 @@ def seed_users_patient():
             # Create their PatientProfile
             dob = datetime.date.today() - datetime.timedelta(days=365*30 + i*100)
             profile = PatientProfile(
-                patient_id = user.user_id,
+                user_id = user.user_id,
                 first_name = f"First{i}",
                 last_name  = f"Last{i}",
                 dob        = dob
