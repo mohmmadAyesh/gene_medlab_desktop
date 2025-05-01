@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                            QLineEdit, QInputDialog, QButtonGroup, QRadioButton)
 from PySide6.QtCore import Qt
 import os
+from datetime import datetime
 import tempfile
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -24,6 +25,7 @@ from docx.shared import Inches, Pt;
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 import openpyxl
+from models import Role,PatientProfile,Preference
 from openpyxl.worksheet.datavalidation import DataValidation
 from docx import Document
 from docx.shared import Pt, RGBColor, Inches
@@ -36,8 +38,10 @@ from sqlalchemy.orm import sessionmaker
 from models import Base
 from models import MealItem,ExclusionRule,HealthCondition
 from sqlalchemy.exc import IntegrityError
+from login import LoginDialog
 def create_element(name):
     return OxmlElement(name)
+
 def create_attribute(element,name,value):
     element.set(qn(name),value)
 def create_dropdown_element(options, selected=None):
@@ -64,9 +68,10 @@ def create_dropdown_element(options, selected=None):
     return sdt
 
 class MealPlanner(QMainWindow):
-    def __init__(self,db_session):
+    def __init__(self,db_session,current_user):
         super().__init__()
         self.db = db_session
+        self.user = current_user
         self.setWindowTitle("Meal Planner")
         self.setMinimumSize(1200, 800)
         self.health_conditions = []
@@ -298,7 +303,15 @@ class MealPlanner(QMainWindow):
                 border-bottom: none;
             }
         """)
-        
+        ratings = [
+            ("أحبه كثيراً", "☺️", "😊", "#22c55e"),
+            ("أحبه بشكل متوسط", "🙂", "😀", "#0ea5e9"),
+            ("أحبه قليلاً", "😐", "🙁", "#f59e0b"),
+            ("لا أحبه", "😕", "😞", "#ef4444")
+        ]
+        self.ratings = ratings
+        self.RATING_LABELS = [text for text, outlined, filled, color in ratings]
+        self.rating_map = { label: i for i, label in enumerate(self.RATING_LABELS) }
         # Create main tab
         main_tab = QWidget()
         main_layout = QVBoxLayout(main_tab)
@@ -486,6 +499,24 @@ class MealPlanner(QMainWindow):
         name_label = QLabel("الاسم:")
         name_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         name_input = QLineEdit()
+        self.name_input = name_input
+        save_pref_button = QPushButton("Save Preferences")
+        save_pref_button.setStyleSheet("""
+            QPushButton {
+                background-color: #3b82f6;
+                color: white;
+                border: none;
+                padding: 12px 24px;
+                border-radius: 8px;
+                font-weight: bold;
+                font-size: 14px;
+                min-width: 150px;
+            }
+            QPushButton:hover {
+                background-color: #2563eb;
+            }
+        """)
+        save_pref_button.clicked.connect(self.save_preferences)
         name_input.setAlignment(Qt.AlignRight)
         name_input.setPlaceholderText("ادخل الاسم")
         name_input.setStyleSheet("""
@@ -505,6 +536,8 @@ class MealPlanner(QMainWindow):
         sample_label = QLabel("رقم العينة:")
         sample_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         sample_input = QLineEdit()
+        self.sample_input = sample_input
+        self.setup_sample_input_listener()
         sample_input.setAlignment(Qt.AlignRight)
         sample_input.setPlaceholderText("ادخل رقم العينة")
         sample_input.setStyleSheet("""
@@ -527,7 +560,7 @@ class MealPlanner(QMainWindow):
         info_layout.addWidget(name_label)
         
         preferences_layout.addWidget(info_group)
-        
+        preferences_layout.addWidget(save_pref_button)
         # Create scroll area for the form
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -577,7 +610,7 @@ class MealPlanner(QMainWindow):
             "Lunch": "خيارات الغداء",
             "Dinner": "خيارات العشاء"
         }
-        
+        self.preference_buttons = {}
         for meal_time in meal_times:
             # Add section header with modern styling
             section_group = QGroupBox()
@@ -654,6 +687,7 @@ class MealPlanner(QMainWindow):
                                         r.setText(f if checked else o))
                     
                     button_group.addButton(radio, i)
+                    self.preference_buttons[meal.name] = button_group
                     button_layout.addWidget(radio)
                 
                 # Add meal name with modern styling
@@ -702,7 +736,24 @@ class MealPlanner(QMainWindow):
         
         # Add to main tabs
         tabs.addTab(preferences_tab, "Preferences")
-        
+        # add patient viewer tab
+        patients_tab = QWidget()
+        patients_layout = QVBoxLayout(patients_tab)
+        self.patients_table = QTableWidget()
+        self.patients_table.setColumnCount(4)
+        self.patients_table.setHorizontalHeaderLabels(
+        ["ID", "First Name", "Last Name", "Date of Birth"]
+        )
+        self.patients_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
+        self.patients_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.patients_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.patients_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
+        self.patients_table.setColumnWidth(0, 50)
+        self.patients_table.setColumnWidth(3, 120)
+        patients_layout.addWidget(self.patients_table)
+        tabs.addTab(patients_tab, "Patients")
+        self.patients_table.cellClicked.connect(self.on_patient_clicked)
+        self.load_patients()
         # Add tab widget to main layout
         layout.addWidget(tabs)
         
@@ -930,7 +981,16 @@ class MealPlanner(QMainWindow):
         
         # Add admin tab to main tabs
         tabs.addTab(admin_tab, "Admin")
-        
+        role = self.user.role.name.lower()
+        if role == 'patient':
+            for tab_widget_label in ("Admin","Preferences"):
+                idx = tabs.indexOf(tabs.findChild(QWidget,tab_widget_label))
+                if idx != -1:
+                    tabs.removeTab(idx)
+        elif role == 'secretary':
+            idx = tabs.indexOf(admin_tab)
+            if idx != -1:
+                tabs.removeTab(idx)
         # Initialize tables
         self.initialize_meal_items_table()
         self.initialize_excluded_foods_tables()
@@ -2052,14 +2112,103 @@ class MealPlanner(QMainWindow):
         self.db.commit()
         self.initialize_excluded_foods_tables()
         self.kidney_name_edit.clear()
-
+    def load_patients(self):
+        profiles = self.db.query(PatientProfile).order_by(PatientProfile.last_name).all()
+        self.patients_table.setRowCount(len(profiles))
+        for row, p in enumerate(profiles):
+        # store the patient_id on the QTableWidgetItem for easy retrieval
+            item_id = QTableWidgetItem(str(p.patient_id))
+            item_id.setData(Qt.UserRole, p.patient_id)
+            self.patients_table.setItem(row, 0, item_id)
+            self.patients_table.setItem(row, 1, QTableWidgetItem(p.first_name))
+            self.patients_table.setItem(row, 2, QTableWidgetItem(p.last_name))
+            self.patients_table.setItem(row, 3, QTableWidgetItem(p.dob.strftime("%Y-%m-%d")))
     
+    def on_patient_clicked(self,row,column):
+        item = self.patients_table.item(row,0)
+        if not item:
+            return
+        self.current_patient_id = item.data(Qt.UserRole)
+        profile = (self.db.query(PatientProfile).filter_by(patient_id = self.current_patient_id).one_or_none())
+        self.name_input.setText(f"{profile.first_name} {profile.last_name}")
+        self.sample_input.setText(str(self.current_patient_id))
+        self.load_preferences_for_patient(self.current_patient_id)
+    ## save preferences
+    def save_preferences(self):
+        try:
+            if not hasattr(self, "current_patient_id"):
+                QMessageBox.warning(self, "Warning", "No patient selected.")
+                return
+            self.db.query(Preference).filter_by(patient_id=self.current_patient_id).delete()
+            print(f"🔹 Saving Preferences for patient ID: {self.current_patient_id}")
+            for meal_name, button_group in self.preference_buttons.items():
+                checked = button_group.checkedButton()
+                if checked:
+                    idx = button_group.id(checked)
+                    rating_label = self.RATING_LABELS[idx]
+                else:
+                    rating_label = "Not Rated"
 
+                pref = Preference(
+                    patient_id = self.current_patient_id,
+                    meal_name  = meal_name,
+                    rating     = rating_label
+                )
+                self.db.add(pref)
+            self.db.commit()
+            QMessageBox.information(self, "Success", "Preferences saved (printed to console).")
+
+        except Exception as e:
+            self.db.rollback()
+            QMessageBox.critical(self, "Error", f"Failed to save preferences: {str(e)}")
+    def load_preferences_for_patient(self,patient_id):
+        prefs = self.db.query(Preference).filter_by(patient_id=patient_id).all()
+        print("prefs",prefs)
+        for group in self.preference_buttons.values():
+            for btn in group.buttons():
+                btn.setAutoExclusive(False)
+                btn.setChecked(False)
+            for btn in group.buttons():
+                btn.setAutoExclusive(True)
+        for pref in prefs:
+           group = self.preference_buttons.get(pref.meal_name)
+           if not group:
+                continue
+           idx = self.rating_map.get(pref.rating)
+           if idx is not None:
+               btn = group.button(idx)
+               if btn:
+                   btn.setChecked(True)
+               
+                
+    def setup_sample_input_listener(self):
+         self.sample_input.returnPressed.connect(self.on_sample_input_entered)    
+    def on_sample_input_entered(self):
+        try:
+            patient_id_text = self.sample_input.text().strip()
+            if not patient_id_text.isdigit():
+               QMessageBox.warning(self, "Invalid Input", "Please enter a valid numeric patient ID.")
+               return
+            patient_id = int(patient_id_text)
+            profile = self.db.query(PatientProfile).filter_by(patient_id = patient_id).first()
+            if not profile:
+                QMessageBox.warning(self, "Not Found", f"No patient found with ID: {patient_id}")
+                return
+            self.current_patient_id = patient_id
+            self.name_input.setText(f"{profile.first_name} {profile.last_name}")
+            print(f"here is patient id to load preferences:{patient_id}")
+            self.load_preferences_for_patient(patient_id)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
 if __name__ == "__main__":
     from sqlalchemy.orm import scoped_session
     from database import SessionLocal
-    session = scoped_session(SessionLocal)
     app = QApplication(sys.argv)
-    window = MealPlanner(session)
+    session = scoped_session(SessionLocal)
+    dlg = LoginDialog(session)
+    if not dlg.exec():
+        sys.exit(0)
+    me = dlg.current_user
+    window = MealPlanner(session,current_user=me)
     window.show()
     sys.exit(app.exec()) 
