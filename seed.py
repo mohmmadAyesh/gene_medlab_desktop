@@ -1,7 +1,8 @@
 # seeds.py
 from database import engine,SessionLocal,Base
-from models import MealItem,HealthCondition,ExclusionRule
+from models import MealItem,HealthCondition,ExclusionRule,Role,User,PatientProfile,PatientCondition
 from sqlalchemy.exc import IntegrityError
+import bcrypt,datetime
 def seed_meal_items():
     Base.metadata.create_all(bind=engine)
     session = SessionLocal()
@@ -159,6 +160,69 @@ def seed_conditions_and_rules():
                 ))
     session.commit()
     session.close()
+def seed_roles():
+    """Create Roles and HealthCondition once"""
+    Base.metadata.create_all(bind=engine)
+    session = SessionLocal()
+    ##1)Role
+    for name in ("admin","secretary","patient"):
+        if not session.query(Role).filter_by(name=name).first():
+            session.add(Role(name=name))
+    session.commit()
+def seed_users_patient():
+    """Create admin, secretary, and 5 patient users + profiles."""
+    session = SessionLocal()
+    roles = {r.name: r for r in session.query(Role).all()}
+
+    # 1) Admin + Secretary
+    for username, pwd, role_name in [
+        ('admin',     'adminpass',    'admin'),
+        ('secretary', 'secretpass',   'secretary'),
+    ]:
+        if not session.query(User).filter_by(username=username).first():
+            pw_hash = bcrypt.hashpw(pwd.encode(), bcrypt.gensalt()).decode()
+            session.add(User(
+                username=username,
+                password_hash=pw_hash,
+                role=roles[role_name]
+            ))
+
+    # 2) Five patients
+    for i in range(1, 6):
+        uname = f"patient{i}"
+        if not session.query(User).filter_by(username=uname).first():
+            pw_hash = bcrypt.hashpw(f"patient{i}pass".encode(), bcrypt.gensalt()).decode()
+            user = User(
+                username=uname,
+                password_hash=pw_hash,
+                role=roles['patient']
+            )
+            session.add(user)
+            session.flush()  # so user.user_id is populated
+
+            # Create their PatientProfile
+            dob = datetime.date.today() - datetime.timedelta(days=365*30 + i*100)
+            profile = PatientProfile(
+                patient_id = user.user_id,
+                first_name = f"First{i}",
+                last_name  = f"Last{i}",
+                dob        = dob
+            )
+            session.add(profile)
+
+            # Give patient1 a Diabetes condition
+            if i == 1:
+                cond = session.query(HealthCondition) \
+                              .filter_by(name="Diabetes") \
+                              .one()
+                session.add(PatientCondition(patient=profile, condition=cond))
+
+    # commit everything once at the end
+    session.commit()
+    session.close()
+    print("Seeded admin, secretary, and 5 patient users + profiles.")
 if __name__ == '__main__':
     seed_meal_items()
     seed_conditions_and_rules()
+    seed_roles()
+    seed_users_patient()
