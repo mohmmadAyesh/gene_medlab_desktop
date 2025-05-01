@@ -982,15 +982,23 @@ class MealPlanner(QMainWindow):
         # Add admin tab to main tabs
         tabs.addTab(admin_tab, "Admin")
         role = self.user.role.name.lower()
-        if role == 'patient':
-            for tab_widget_label in ("Admin","Preferences"):
-                idx = tabs.indexOf(tabs.findChild(QWidget,tab_widget_label))
-                if idx != -1:
-                    tabs.removeTab(idx)
-        elif role == 'secretary':
-            idx = tabs.indexOf(admin_tab)
-            if idx != -1:
-                tabs.removeTab(idx)
+        allowed_tabs = {
+            'admin':    ["Meal Planner", "Health Conditions", "Exclude Items", "Preferences", "Patients", "Admin"],
+            'secretary':["Preferences", "Patients"],
+            'patient':  ["Preferences"],
+        }
+        for i in reversed(range(tabs.count())):
+            if tabs.tabText(i) not in allowed_tabs[role]:
+                tabs.removeTab(i)
+        # if role == 'patient':
+        #     for tab_widget_label in ("Admin","Preferences"):
+        #         idx = tabs.indexOf(tabs.findChild(QWidget,tab_widget_label))
+        #         if idx != -1:
+        #             tabs.removeTab(idx)
+        # elif role == 'secretary':
+        #     idx = tabs.indexOf(admin_tab)
+        #     if idx != -1:
+        #         tabs.removeTab(idx)
         # Initialize tables
         self.initialize_meal_items_table()
         self.initialize_excluded_foods_tables()
@@ -2117,8 +2125,8 @@ class MealPlanner(QMainWindow):
         self.patients_table.setRowCount(len(profiles))
         for row, p in enumerate(profiles):
         # store the patient_id on the QTableWidgetItem for easy retrieval
-            item_id = QTableWidgetItem(str(p.patient_id))
-            item_id.setData(Qt.UserRole, p.patient_id)
+            item_id = QTableWidgetItem(str(p.id))
+            item_id.setData(Qt.UserRole, p.id)
             self.patients_table.setItem(row, 0, item_id)
             self.patients_table.setItem(row, 1, QTableWidgetItem(p.first_name))
             self.patients_table.setItem(row, 2, QTableWidgetItem(p.last_name))
@@ -2129,17 +2137,23 @@ class MealPlanner(QMainWindow):
         if not item:
             return
         self.current_patient_id = item.data(Qt.UserRole)
-        profile = (self.db.query(PatientProfile).filter_by(patient_id = self.current_patient_id).one_or_none())
+        profile = (self.db.query(PatientProfile).filter_by(id = self.current_patient_id).one_or_none())
         self.name_input.setText(f"{profile.first_name} {profile.last_name}")
         self.sample_input.setText(str(self.current_patient_id))
         self.load_preferences_for_patient(self.current_patient_id)
     ## save preferences
     def save_preferences(self):
         try:
-            if not hasattr(self, "current_patient_id"):
-                QMessageBox.warning(self, "Warning", "No patient selected.")
-                return
-            self.db.query(Preference).filter_by(patient_id=self.current_patient_id).delete()
+            if self.user.role.name.lower() == "patient":
+                patient_id = self.user.patient_profile.id
+            else:
+                if not hasattr(self, "current_patient_id"):
+                    QMessageBox.warning(self, "Warning", "No patient selected.")
+                    return
+                patient_id = self.current_patient_id
+           # wipe out old prefs for that patient
+            self.db.query(Preference).filter_by(patient_id=patient_id).delete()
+            
             print(f"🔹 Saving Preferences for patient ID: {self.current_patient_id}")
             for meal_name, button_group in self.preference_buttons.items():
                 checked = button_group.checkedButton()
@@ -2150,7 +2164,7 @@ class MealPlanner(QMainWindow):
                     rating_label = "Not Rated"
 
                 pref = Preference(
-                    patient_id = self.current_patient_id,
+                    patient_id = patient_id,
                     meal_name  = meal_name,
                     rating     = rating_label
                 )
@@ -2190,7 +2204,7 @@ class MealPlanner(QMainWindow):
                QMessageBox.warning(self, "Invalid Input", "Please enter a valid numeric patient ID.")
                return
             patient_id = int(patient_id_text)
-            profile = self.db.query(PatientProfile).filter_by(patient_id = patient_id).first()
+            profile = self.db.query(PatientProfile).filter_by(id = patient_id).first()
             if not profile:
                 QMessageBox.warning(self, "Not Found", f"No patient found with ID: {patient_id}")
                 return
