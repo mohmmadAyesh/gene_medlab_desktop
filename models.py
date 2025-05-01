@@ -82,7 +82,8 @@ class Preference(Base):
     patient_id = Column(Integer, ForeignKey('patient_profiles.patient_id'))
     # add your extra pref columns here, e.g. calorie_target, allergies, etc.
     patient    = relationship("PatientProfile", back_populates="preferences")
-
+    meal_name = Column(String,nullable=False)
+    rating = Column(String,nullable=True)
 class MealPlan(Base):
     __tablename__ = 'meal_plans'
     plan_id      = Column(Integer, primary_key=True)
