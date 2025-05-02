@@ -68,6 +68,13 @@ def create_dropdown_element(options, selected=None):
     return sdt
 
 class MealPlanner(QMainWindow):
+    RATING_WEIGHTS = {
+    "أحبه كثيراً":    3.0,
+    "أحبه بشكل متوسط": 2.0,
+    "أحبه قليلاً":    1.0,
+    "لا أحبه":        0.5,
+    "Not Rated":      1.0,
+    }
     def __init__(self,db_session,current_user):
         super().__init__()
         self.db = db_session
@@ -990,6 +997,18 @@ class MealPlanner(QMainWindow):
         for i in reversed(range(tabs.count())):
             if tabs.tabText(i) not in allowed_tabs[role]:
                 tabs.removeTab(i)
+        if role == 'patient':
+            pid = self.user.patient.id
+            print(">> pid:", pid)
+            self.current_patient_id = pid
+            print(">> self.user:", self.user)
+            print(">>   type:", type(self.user))
+            print(">>   attrs:", dir(self.user))
+            self.sample_input.setDisabled(True)
+            self.sample_input.setText(str(pid))
+            self.name_input.setText(f"{self.user.patient.first_name} {self.user.patient.last_name}")
+            self.name_input.setDisabled(True)
+            self.load_preferences_for_patient(pid)
         # if role == 'patient':
         #     for tab_widget_label in ("Admin","Preferences"):
         #         idx = tabs.indexOf(tabs.findChild(QWidget,tab_widget_label))
@@ -2144,8 +2163,10 @@ class MealPlanner(QMainWindow):
     ## save preferences
     def save_preferences(self):
         try:
+            
             if self.user.role.name.lower() == "patient":
-                patient_id = self.user.patient_profile.id
+
+                patient_id = self.user.patient.id
             else:
                 if not hasattr(self, "current_patient_id"):
                     QMessageBox.warning(self, "Warning", "No patient selected.")
@@ -2178,12 +2199,17 @@ class MealPlanner(QMainWindow):
     def load_preferences_for_patient(self,patient_id):
         prefs = self.db.query(Preference).filter_by(patient_id=patient_id).all()
         print("prefs",prefs)
+        # for group in self.preference_buttons.values():
+        #     for btn in group.buttons():
+        #         btn.setAutoExclusive(False)
+        #         btn.setChecked(False)
+        #     for btn in group.buttons():
+        #         btn.setAutoExclusive(True)
         for group in self.preference_buttons.values():
+            group.setExclusive(False)
             for btn in group.buttons():
-                btn.setAutoExclusive(False)
                 btn.setChecked(False)
-            for btn in group.buttons():
-                btn.setAutoExclusive(True)
+            group.setExclusive(True)
         for pref in prefs:
            group = self.preference_buttons.get(pref.meal_name)
            if not group:
