@@ -1378,7 +1378,14 @@ class MealPlanner(QMainWindow):
             workbook = openpyxl.Workbook()
             sheet = workbook.active
             sheet.title = "خطة الوجبات"
-            sheet.cell(row=1, column=1).value = "Health Conditions:"
+            # 1) Patient info
+            sheet.cell(row=1, column=1).value = "Name:"
+            sheet.cell(row=1, column=2).value = self.name_input.text()
+            print(">> self.name_input.text():", self.name_input.text())
+            sheet.cell(row=2, column=1).value = "Sample Number:"
+            sheet.cell(row=2, column=2).value = self.sample_input.text()
+            ## 2) Health Conditions
+            sheet.cell(row=1, column=4).value = "Health Conditions:"
             conditions = []
             if 1 in self.health_conditions:
                 conditions.append("Healthy")
@@ -1386,7 +1393,7 @@ class MealPlanner(QMainWindow):
                 conditions.append("Diabetes")
             if 3 in self.health_conditions:
                 conditions.append("Kidney Disease")
-            sheet.cell(row=1, column=2).value = ", ".join(conditions)
+            sheet.cell(row=1, column=5).value = ", ".join(conditions)
             headers = ["اليوم", "الإفطار", "الغداء", "العشاء"]
             for col, header in enumerate(headers, 1):
                 sheet.cell(row=3, column=col).value = header
