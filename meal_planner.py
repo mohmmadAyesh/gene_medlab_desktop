@@ -73,7 +73,7 @@ class MealPlanner(QMainWindow):
     "أحبه بشكل متوسط": 2.0,
     "أحبه قليلاً":    1.0,
     "لا أحبه":        0.5,
-    "Not Rated":      1.0,
+    "Not Rated":      3.0,
     }
     def __init__(self,db_session,current_user):
         super().__init__()
@@ -1230,53 +1230,145 @@ class MealPlanner(QMainWindow):
 
     def generate_meal_plan(self):
         try:
-            # Get category counts
-            count_a = self.category_a_spin.value()
-            count_b = self.category_b_spin.value()
-            count_c = self.category_c_spin.value()
-            
-            # Validate counts
-            total = count_a + count_b + count_c
-            if total != 7:
+            # 1) Read & validate your 7‑day category totals
+            green_n  = self.category_a_spin.value()
+            yellow_n = self.category_b_spin.value()
+            red_n    = self.category_c_spin.value()
+            if green_n + yellow_n + red_n != 7:
                 QMessageBox.warning(self, "Error", "Category counts must sum to 7")
                 return
-            
-            # Get excluded items
+
+            # 2) Figure out which patient’s prefs to use
+            role = self.user.role.name.lower()
+            if role == 'patient':
+                pid = self.user.patient.id
+            else:
+                if not hasattr(self, 'current_patient_id'):
+                    QMessageBox.warning(self, "Error", "Please select a patient first.")
+                    return
+                pid = self.current_patient_id
+
+            # 3) Load their stored preference‐weights
+            prefs = {
+                p.meal_name: self.RATING_WEIGHTS.get(p.rating, 1.0)
+                for p in self.db.query(Preference).filter_by(patient_id=pid)
+            }
+
+            # 4) Helpers ----------------------------------------------------------------
+
+            def pick_by_color(pool, g, y, r):
+                """
+                pool: list of MealItem
+                returns exactly g+y+r picks, sampling WITH replacement from each color,
+                falling back to the entire pool if a color‐bin is empty.
+                """
+                by_col = {
+                    "Green":  [m for m in pool if m.color == "Green"],
+                    "Yellow": [m for m in pool if m.color == "Yellow"],
+                    "Red":    [m for m in pool if m.color == "Red"],
+                }
+                out = []
+                for col, cnt in (("Green", g), ("Yellow", y), ("Red", r)):
+                    choices = by_col[col] or pool
+                    # now we know choices is nonempty
+                    out += random.choices(choices, k=cnt)
+                return out
+
+            def weighted_without_replacement(items, weights):
+                """
+                items, weights: same length lists
+                returns a reordering of items, sampling WITHOUT replacement
+                proportional to weights.
+                """
+                items = list(items)
+                wts   = list(weights)
+                out   = []
+                while items:
+                    total = sum(wts)
+                    r = random.random() * total
+                    cum = 0.0
+                    for i, w in enumerate(wts):
+                        cum += w
+                        if r <= cum:
+                            out.append(items.pop(i))
+                            wts.pop(i)
+                            break
+                return out
+
+            # 5) Build your raw meal‑item pools, excluding anything the user checked off
             excluded = set(self.get_excluded_items())
-            eat = lambda time, grp: [
+            eat = lambda tm, grp: [
                 m for m in self.items
-                if m.eat_time == time and m.group == grp and m.name not in excluded
+                if m.eat_time == tm and m.group == grp and m.name not in excluded
             ]
-            bg1, bg2 = eat("Breakfast",1), eat("Breakfast",2)
-            lg1, lg2 = eat("Lunch",    1), eat("Lunch",    2)
-            dn  = eat("Dinner",    1)
-            prev = {"b1":[],"b2":[],"l1":[],"l2":[],"d":[]}
-            for row in range(self.table.rowCount()):
-                 ag1 = [m for m in bg1 if m not in prev["b1"]] or bg1
-                 ag2 = [m for m in bg2 if m not in prev["b2"]] or bg2
-                 def pick(av, key):
-                    weights = [(1.0 if m not in prev[key] else 0.01)*random.uniform(0.8,1.2) for m in av]
-                    total = sum(weights)
-                    return random.choices(av, weights=[w/total for w in weights], k=1)[0]
-                 b1 = pick(ag1, "b1")
-                 b2 = pick(ag2, "b2")
-                 prev["b1"], prev["b2"] = [b1],[b2]
-                 al1 = [m for m in lg1 if m not in prev["l1"]] or lg1
-                 al2 = [m for m in lg2 if m not in prev["l2"]] or lg2
-                 l1 = random.choice(al1)
-                 l2 = random.choice(al2)
-                 prev["l1"], prev["l2"] = [l1],[l2]
-                 # dinner
-                 ad = [m for m in dn if m not in prev["d"]] or dn
-                 d = random.choice(ad)
-                 prev["d"] =[d]
-                 self.table.cellWidget(row,1).setCurrentText(f"{b1.name} + {b2.name}")
-                 self.table.cellWidget(row,2).setCurrentText(f"{l1.name} + {l2.name}")
-                 self.table.cellWidget(row,3).setCurrentText(d.name)
-            for btn in (self.save_excel_button, self.save_word_button, self.save_pdf_button):
+            bg1, bg2 = eat("Breakfast", 1), eat("Breakfast", 2)
+            lg1, lg2 = eat("Lunch",     1), eat("Lunch",     2)
+            dn       = eat("Dinner",    1)
+
+            # 6) Decide how many “weeks” your table holds
+            rows       = self.table.rowCount()
+            weeks_full = rows // 7
+            extra      = rows % 7
+
+            # 7) Generate one fresh 7‑day block PER week (plus one if there’s a partial)
+            b1_all = []
+            b2_all = []
+            l1_all = []
+            l2_all = []
+            d_all  = []
+
+            for _ in range(weeks_full + (1 if extra else 0)):
+                # a) pick g/y/r EXACTLY from each sub‑pool
+                b1p = pick_by_color(bg1, green_n, yellow_n, red_n)
+                b2p = pick_by_color(bg2, green_n, yellow_n, red_n)
+                l1p = pick_by_color(lg1, green_n, yellow_n, red_n)
+                l2p = pick_by_color(lg2, green_n, yellow_n, red_n)
+                dp  = pick_by_color(dn,   green_n, yellow_n, red_n)
+
+                # b) reorder by preference‐weight (no replacement)
+                b1w = weighted_without_replacement(b1p, [prefs.get(m.name,1.0) for m in b1p])
+                b2w = weighted_without_replacement(b2p, [prefs.get(m.name,1.0) for m in b2p])
+                l1w = weighted_without_replacement(l1p, [prefs.get(m.name,1.0) for m in l1p])
+                l2w = weighted_without_replacement(l2p, [prefs.get(m.name,1.0) for m in l2p])
+                dw  = weighted_without_replacement(dp,  [prefs.get(m.name,1.0) for m in dp ])
+
+                # c) stash them
+                b1_all += b1w
+                b2_all += b2w
+                l1_all += l1w
+                l2_all += l2w
+                d_all  += dw
+
+            # 8) Chop off any extra days so we have exactly “rows” entries
+            b1_all = b1_all[:rows]
+            b2_all = b2_all[:rows]
+            l1_all = l1_all[:rows]
+            l2_all = l2_all[:rows]
+            d_all  = d_all[:rows]
+
+            # 9) Write them back into your  table
+            for i in range(rows):
+                b1,b2 = b1_all[i], b2_all[i]
+                self.table.cellWidget(i,1).setCurrentText(f"{b1.name} + {b2.name}")
+
+                l1,l2 = l1_all[i], l2_all[i]
+                self.table.cellWidget(i,2).setCurrentText(f"{l1.name} + {l2.name}")
+
+                d = d_all[i]
+                self.table.cellWidget(i,3).setCurrentText(d.name)
+
+            # 10) Enable your export buttons
+            for btn in (
+                self.save_excel_button,
+                self.save_word_button,
+                self.save_pdf_button,
+                self.save_gdocs_button,
+                self.export_to_word_template_button
+            ):
                 btn.setEnabled(True)
+
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to generate meal plan: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to generate meal plan: {e}")
 
     def save_to_excel(self):
         try:
